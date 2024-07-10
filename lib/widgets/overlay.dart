@@ -13,48 +13,68 @@ class AlignmentOverlay extends StatefulWidget {
 class AlignmentOverlayState extends State<AlignmentOverlay> {
   double _arrowPosition = 0.5;
   bool _isMisaligned = false;
+  String _alignmentMessage = 'Camera đã căn chỉnh đúng';
 
-  // Sử dụng giá trị trung bình động để làm mượt dữ liệu cảm biến
-  final int _averageCount = 10; // Số lượng giá trị để tính trung bình
-  final List<double> _accelerationXHistory =
-  List.filled(10, 0.0); // Lưu trữ lịch sử gia tốc X
-  int _historyIndex = 0; // Chỉ số của giá trị lịch sử hiện tại
+  final _averageCount = 5;
+  final List<double> _accelerationXHistory = List.filled(5, 0.0);
+  int _historyIndex = 0;
+
+  final double _movementThreshold = 0.02;
+  final double _deadZone = 0.02;
+
+  // Biến lưu giá trị sai lệch của gia tốc kế theo trục X
+  double _accelerationXBias = 0.0;
 
   @override
   void initState() {
     super.initState();
-    accelerometerEventStream().listen((AccelerometerEvent event) {
+    _calibrateAccelerometer(); // Hiệu chỉnh gia tốc kế khi khởi tạo
+    accelerometerEventStream().listen((event) {
       _updateAlignment(event);
     });
   }
 
+  // Hàm hiệu chỉnh gia tốc kế
+  void _calibrateAccelerometer() async {
+    final accelerometerEvents = await accelerometerEventStream().take(10).toList();
+    double sumX = 0.0;
+    for (var event in accelerometerEvents) {
+      sumX += event.x;
+    }
+    _accelerationXBias = sumX / accelerometerEvents.length;
+  }
+
   void _updateAlignment(AccelerometerEvent event) {
-    // Cập nhật lịch sử gia tốc X
-    _accelerationXHistory[_historyIndex] = event.x;
+    // Trừ giá trị sai lệch đã tính được
+    double calibratedX = event.x - _accelerationXBias;
+
+    _accelerationXHistory[_historyIndex] = calibratedX;
     _historyIndex = (_historyIndex + 1) % _averageCount;
 
-    // Tính toán giá trị trung bình của gia tốc X
-    double averageX =
-        _accelerationXHistory.reduce((a, b) => a + b) / _averageCount;
+    double sumX = 0.0;
+    for (int i = 0; i < _averageCount; i++) {
+      sumX += _accelerationXHistory[i];
+    }
+    double averageX = sumX / _averageCount;
 
-    // Tính toán vị trí mũi tên dựa trên gia tốc trung bình
-    double newX = _arrowPosition + averageX * 0.005;
-    newX = newX.clamp(0.0, 1.0);
+    // Áp dụng dead zone
+    averageX = (averageX.abs() < _deadZone) ? 0 : averageX;
 
-    // Kiểm tra căn chỉnh dựa trên ngưỡng
-    bool misaligned = (newX - 0.5).abs() >= 0.03;
+    double newX = (_arrowPosition + averageX * 0.05).clamp(0.0, 1.0);
 
-    // Tính góc nghiêng từ gia tốc
-    // double tiltAngle = math.atan2(
-    //     event.y, math.sqrt(event.x * event.x + event.z * event.z)) *
-    //     180 /
-    //     math.pi;
+    bool newMisalignment = (newX - 0.5).abs() >= _movementThreshold;
 
-    if (mounted) {
+    String newAlignmentMessage = newMisalignment
+        ? "Vui lòng nghiêng camera sang ${averageX > 0 ? "trái" : "phải"}"
+        : "Camera đã căn chỉnh đúng";
+
+    if (_isMisaligned != newMisalignment ||
+        _alignmentMessage != newAlignmentMessage ||
+        _arrowPosition != newX) {
       setState(() {
         _arrowPosition = newX;
-        _isMisaligned = misaligned;
-        // _tiltAngle = tiltAngle; // Cập nhật góc nghiêng (không cần thiết)
+        _isMisaligned = newMisalignment;
+        _alignmentMessage = newAlignmentMessage;
       });
       widget.onAlignmentChange(!_isMisaligned);
     }
@@ -64,14 +84,6 @@ class AlignmentOverlayState extends State<AlignmentOverlay> {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        Positioned(
-          child: Divider(
-              height: MediaQuery.of(context).size.height,
-              color: Colors.white,
-              thickness: 2,
-              indent: MediaQuery.of(context).size.width * 0.5,
-              endIndent: MediaQuery.of(context).size.width * 0.5),
-        ),
         Positioned(
           left: MediaQuery.of(context).size.width * _arrowPosition - 25,
           top: MediaQuery.of(context).size.height * 0.5 - 25,
@@ -88,12 +100,21 @@ class AlignmentOverlayState extends State<AlignmentOverlay> {
             child: Container(
               padding: const EdgeInsets.all(8),
               color: Colors.red,
-              child: const Text(
-                'Vui lòng căn chỉnh camera',
-                style: TextStyle(color: Colors.white),
+              child: Text(
+                _alignmentMessage,
+                style: const TextStyle(color: Colors.white),
               ),
             ),
           ),
+        Positioned(
+          left: MediaQuery.of(context).size.width / 2 - 4, // Center the line
+          top: 0,
+          bottom: 0,
+          child: const VerticalDivider(
+            color: Colors.grey,
+            thickness: 4,
+          ),
+        ),
       ],
     );
   }

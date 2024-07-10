@@ -21,8 +21,17 @@ Future<Uint8List> _stitchImagesIsolate(List<Uint8List> imageDataList) async {
   List<cv.Mat> matImages = [];
   for (var imageData in imageDataList) {
     final image = await cv.imdecodeAsync(imageData, cv.COLOR_YUV2BGR_NV21);
-    var resizedImage =
-        await cv.resizeAsync(image, (640, 480), interpolation: cv.INTER_LINEAR);
+    // Lấy kích thước gốc của ảnh
+    final originalSize = image.size;
+    final aspectRatio = originalSize.last / originalSize.first;
+
+    // Tính toán kích thước mới dựa trên tỷ lệ khung hình
+    int newWidth = 30;
+    int newHeight = (30 / aspectRatio).round();
+
+    // Resize ảnh với kích thước mới và interpolation phù hợp
+    var resizedImage = await cv.resizeAsync(image, (newWidth, newHeight),
+        interpolation: cv.INTER_AREA);
     matImages.add(resizedImage);
   }
 
@@ -48,6 +57,9 @@ class LongShotAppState extends State<LongShotApp> {
   Timer? _captureTimer;
   bool _isAligned = false;
   var _stitchedImage = Uint8List(0);
+  double _currentZoomLevel = 1.0;
+  double _baseZoomLevel = 1.0;
+  late double maxAllowedZoomLevel;
 
   @override
   void initState() {
@@ -63,9 +75,10 @@ class LongShotAppState extends State<LongShotApp> {
       ResolutionPreset.max,
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.yuv420,
-      fps: 45,
+      fps: 30,
     );
     await _controller!.initialize();
+    maxAllowedZoomLevel = await _controller!.getMaxZoomLevel();
     if (!mounted) return;
     setState(() {});
   }
@@ -82,9 +95,18 @@ class LongShotAppState extends State<LongShotApp> {
     for (var path in imagePaths) {
       final bytes = await File(path).readAsBytes();
       final image = await cv.imdecodeAsync(bytes, cv.COLOR_YUV2BGR_NV21);
-      // Resize images for consistent stitching
-      var resizedImage = await cv.resizeAsync(image, (120, 60),
-          interpolation: cv.INTER_LINEAR);
+
+      // Lấy kích thước gốc của ảnh
+      final originalSize = image.size;
+      final aspectRatio = originalSize.last / originalSize.first;
+
+      // Tính toán kích thước mới dựa trên tỷ lệ khung hình
+      int newWidth = 30;
+      int newHeight = (30 / aspectRatio).round();
+
+      // Resize ảnh với kích thước mới và interpolation phù hợp
+      var resizedImage = await cv.resizeAsync(image, (newWidth, newHeight),
+          interpolation: cv.INTER_AREA);
       matImages.add(resizedImage);
     }
 
@@ -123,7 +145,27 @@ class LongShotAppState extends State<LongShotApp> {
         _isCapturingPicture = true;
       });
       final image = await _controller!.takePicture();
-      _images.add(XFile(image.path));
+      final bytes = await image.readAsBytes();
+      final decodedImage = await cv.imdecodeAsync(bytes, cv.IMREAD_COLOR);
+
+      // Define the frame dimensions
+      const frameLeft = 64;
+      const frameTop = 150;
+      final frameWidth = (_controller!.value.previewSize!.width - 128).toInt();
+      final frameHeight =
+          (_controller!.value.previewSize!.height - 300).toInt();
+
+      // Crop the image to the frame dimensions
+      final croppedImage = await cv.getRectSubPixAsync(
+        decodedImage,
+        (frameWidth, frameHeight),
+        cv.Point2f((frameLeft + frameWidth / 2).toDouble(),
+            (frameTop + frameHeight / 2).toDouble()),
+      );
+
+      final croppedBytes = await cv.imencodeAsync('.jpg', croppedImage);
+
+      _images.add(XFile.fromData(croppedBytes.$2, name: image.name));
       if (_images.length >= 2) {
         await _stitchImagesForPreview();
       }
@@ -183,9 +225,9 @@ class LongShotAppState extends State<LongShotApp> {
     final vecMat = cv.VecMat.fromList(matImages);
     final stitchResult = stitcher.stitch(vecMat);
 
-
     // Convert to grayscale
-    final grayImage = await cv.cvtColorAsync(stitchResult.$2, cv.COLOR_BGR2GRAY);
+    final grayImage =
+        await cv.cvtColorAsync(stitchResult.$2, cv.COLOR_BGR2GRAY);
 
     // // Apply adaptive thresholding
     final thresholdImage = await cv.adaptiveThresholdAsync(
@@ -195,7 +237,8 @@ class LongShotAppState extends State<LongShotApp> {
     final blurredImage = await cv.gaussianBlurAsync(thresholdImage, (5, 5), 0);
 
     // // Apply contrast enhancement
-    final contrastEnhancedImage = await cv.convertScaleAbsAsync(blurredImage, alpha: 1.5, beta: 0);
+    final contrastEnhancedImage =
+        await cv.convertScaleAbsAsync(blurredImage, alpha: 1.5, beta: 0);
 
     // Apply histogram equalization
     final equalizedImage = await cv.equalizeHistAsync(contrastEnhancedImage);
@@ -206,7 +249,6 @@ class LongShotAppState extends State<LongShotApp> {
 
     // Encode the processed image to bytes
     final processedBytes = await cv.imencodeAsync('.jpg', equalizedImage);
-
 
     if (navigateAfterStitching && mounted) {
       Navigator.pushReplacement(
@@ -233,8 +275,30 @@ class LongShotAppState extends State<LongShotApp> {
         children: [
           Positioned.fill(
             child: _controller != null && _controller!.value.isInitialized
-                ? CameraPreview(_controller!)
+                ? GestureDetector(
+                    onTapUp: (details) {
+                      final screenSize = MediaQuery.of(context).size;
+                      final x = details.localPosition.dx / screenSize.width;
+                      final y = details.localPosition.dy / screenSize.height;
+                      final focusPoint = Offset(x, y);
+                      _controller!.setFocusPoint(focusPoint);
+                    },
+                    onScaleStart: (_) {
+                      _baseZoomLevel = _currentZoomLevel;
+                    },
+                    onScaleUpdate: (details) async {
+                      _currentZoomLevel = (_baseZoomLevel * details.scale)
+                          .clamp(1.0, maxAllowedZoomLevel);
+                      await _controller!.setZoomLevel(_currentZoomLevel);
+                    },
+                    child: CameraPreview(_controller!))
                 : const Center(child: CircularProgressIndicator()),
+          ),
+          FrameOverlay(
+            frameLeft: 0,
+            frameTop: 0,
+            frameWidth: MediaQuery.of(context).size.width,
+            frameHeight: MediaQuery.of(context).size.height,
           ),
           AlignmentOverlay(
             onAlignmentChange: (aligned) {
@@ -258,7 +322,19 @@ class LongShotAppState extends State<LongShotApp> {
                         10, // Adjust the size of the preview
                   ),
           ),
-          const FrameOverlay(),
+          Positioned(
+            bottom: 10,
+            left: 10,
+            child: IconButton(
+              icon: const Icon(Icons.flash_on),
+              onPressed: () async {
+                await _controller?.setFlashMode(
+                    _controller!.value.flashMode == FlashMode.off
+                        ? FlashMode.torch
+                        : FlashMode.off);
+              },
+            ),
+          ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(

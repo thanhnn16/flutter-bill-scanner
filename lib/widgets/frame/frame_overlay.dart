@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
+import 'dart:ui' as ui;
 
 class FramePainter extends CustomPainter {
-  final double cornerLength;
   final double strokeWidth;
   final Color color;
 
   FramePainter({
-    this.cornerLength = 20.0,
     this.strokeWidth = 5.0,
     this.color = Colors.white,
   });
@@ -18,21 +17,9 @@ class FramePainter extends CustomPainter {
       ..strokeWidth = strokeWidth
       ..style = PaintingStyle.stroke;
 
-    // Top left corner
-    canvas.drawLine(Offset(0, cornerLength), const Offset(0, 0), paint);
-    canvas.drawLine(const Offset(0, 0), Offset(cornerLength, 0), paint);
-
-    // Top right corner
-    canvas.drawLine(Offset(size.width - cornerLength, 0), Offset(size.width, 0), paint);
-    canvas.drawLine(Offset(size.width, 0), Offset(size.width, cornerLength), paint);
-
-    // Bottom left corner
-    canvas.drawLine(Offset(0, size.height - cornerLength), Offset(0, size.height), paint);
-    canvas.drawLine(Offset(0, size.height), Offset(cornerLength, size.height), paint);
-
-    // Bottom right corner
-    canvas.drawLine(Offset(size.width - cornerLength, size.height), Offset(size.width, size.height), paint);
-    canvas.drawLine(Offset(size.width, size.height), Offset(size.width, size.height - cornerLength), paint);
+    // Draw the rectangle frame
+    final rect = Rect.fromLTWH(64, 150, size.width - 128, size.height - 300);
+    canvas.drawRect(rect, paint);
   }
 
   @override
@@ -42,18 +29,76 @@ class FramePainter extends CustomPainter {
 }
 
 class FrameOverlay extends StatelessWidget {
-  const FrameOverlay({super.key});
+  final double frameLeft;
+  final double frameTop;
+  final double frameWidth;
+  final double frameHeight;
+
+  const FrameOverlay({
+    super.key,
+    required this.frameLeft,
+    required this.frameTop,
+    required this.frameWidth,
+    required this.frameHeight,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Positioned(
-      left: 64, // Adjust based on desired frame size and position
-      right: 64,
-      top: 150,
-      bottom: 150,
-      child: CustomPaint(
-        painter: FramePainter(),
-      ),
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: ClipPath(
+            clipper: FrameClipper(
+              frameLeft: frameLeft,
+              frameTop: frameTop,
+              frameWidth: frameWidth,
+              frameHeight: frameHeight,
+            ),
+            child: BackdropFilter(
+              filter: ui.ImageFilter.blur(sigmaX: 10.0, sigmaY: 10.0),
+              child: Container(
+                color: Colors.black.withOpacity(0),
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          left: frameLeft,
+          top: frameTop,
+          width: frameWidth,
+          height: frameHeight,
+          child: CustomPaint(
+            painter: FramePainter(),
+          ),
+        ),
+      ],
     );
+  }
+}
+
+class FrameClipper extends CustomClipper<Path> {
+  final double frameLeft;
+  final double frameTop;
+  final double frameWidth;
+  final double frameHeight;
+
+  FrameClipper({
+    required this.frameLeft,
+    required this.frameTop,
+    required this.frameWidth,
+    required this.frameHeight,
+  });
+
+  @override
+  Path getClip(Size size) {
+    return Path()
+      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height))
+      ..addRect(Rect.fromLTWH(frameLeft, frameTop, frameWidth, frameHeight))
+      ..fillType = PathFillType.evenOdd;
+  }
+
+  @override
+  bool shouldReclip(covariant CustomClipper<Path> oldClipper) {
+    return false;
   }
 }
