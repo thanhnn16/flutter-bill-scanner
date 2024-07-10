@@ -1,10 +1,9 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:long_shot_app/widgets/frame/frame_overlay.dart';
+
 import 'package:long_shot_app/widgets/overlay.dart';
 import 'package:opencv_dart/opencv_dart.dart' as cv;
 
@@ -21,17 +20,8 @@ Future<Uint8List> _stitchImagesIsolate(List<Uint8List> imageDataList) async {
   List<cv.Mat> matImages = [];
   for (var imageData in imageDataList) {
     final image = await cv.imdecodeAsync(imageData, cv.COLOR_YUV2BGR_NV21);
-    // Lấy kích thước gốc của ảnh
-    final originalSize = image.size;
-    final aspectRatio = originalSize.last / originalSize.first;
-
-    // Tính toán kích thước mới dựa trên tỷ lệ khung hình
-    int newWidth = 30;
-    int newHeight = (30 / aspectRatio).round();
-
-    // Resize ảnh với kích thước mới và interpolation phù hợp
-    var resizedImage = await cv.resizeAsync(image, (newWidth, newHeight),
-        interpolation: cv.INTER_AREA);
+    var resizedImage =
+        await cv.resizeAsync(image, (200, 320), interpolation: cv.INTER_AREA);
     matImages.add(resizedImage);
   }
 
@@ -72,10 +62,9 @@ class LongShotAppState extends State<LongShotApp> {
     final firstCamera = cameras.first;
     _controller = CameraController(
       firstCamera,
-      ResolutionPreset.max,
+      ResolutionPreset.high,
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.yuv420,
-      fps: 30,
     );
     await _controller!.initialize();
     maxAllowedZoomLevel = await _controller!.getMaxZoomLevel();
@@ -87,41 +76,6 @@ class LongShotAppState extends State<LongShotApp> {
   void dispose() {
     _controller?.dispose();
     super.dispose();
-  }
-
-  // Stitches images using OpenCV
-  Future<Uint8List> stitchImagesForPreviewTask(List<String> imagePaths) async {
-    List<cv.Mat> matImages = [];
-    for (var path in imagePaths) {
-      final bytes = await File(path).readAsBytes();
-      final image = await cv.imdecodeAsync(bytes, cv.COLOR_YUV2BGR_NV21);
-
-      // Lấy kích thước gốc của ảnh
-      final originalSize = image.size;
-      final aspectRatio = originalSize.last / originalSize.first;
-
-      // Tính toán kích thước mới dựa trên tỷ lệ khung hình
-      int newWidth = 30;
-      int newHeight = (30 / aspectRatio).round();
-
-      // Resize ảnh với kích thước mới và interpolation phù hợp
-      var resizedImage = await cv.resizeAsync(image, (newWidth, newHeight),
-          interpolation: cv.INTER_AREA);
-      matImages.add(resizedImage);
-    }
-
-    final stitcher = cv.Stitcher.create(mode: cv.StitcherMode.SCANS);
-    final vecMat = cv.VecMat.fromList(matImages);
-    final stitchResult = stitcher.stitch(vecMat);
-
-    final stitchedBytes = await cv.imencodeAsync('.jpg', stitchResult.$2);
-
-    // Clean up OpenCV Mats
-    for (var matImage in matImages) {
-      matImage.dispose();
-    }
-
-    return stitchedBytes.$2;
   }
 
   // Triggers image stitching in a separate isolate
@@ -144,37 +98,38 @@ class LongShotAppState extends State<LongShotApp> {
       setState(() {
         _isCapturingPicture = true;
       });
+
       final image = await _controller!.takePicture();
       final bytes = await image.readAsBytes();
       final decodedImage = await cv.imdecodeAsync(bytes, cv.IMREAD_COLOR);
 
       // Define the frame dimensions
-      const frameLeft = 64;
-      const frameTop = 150;
-      final frameWidth = (_controller!.value.previewSize!.width - 128).toInt();
-      final frameHeight =
-          (_controller!.value.previewSize!.height - 300).toInt();
+      // const frameLeft = 0;
+      // const frameTop = 0;
+      // final frameWidth = (_controller!.value.previewSize!.width).toInt();
+      // final frameHeight =
+      //     (_controller!.value.previewSize!.height).toInt();
+      //
+      // // Crop the image to the frame dimensions
+      // final croppedImage = await cv.getRectSubPixAsync(
+      //   decodedImage,
+      //   (frameWidth, frameHeight),
+      //   cv.Point2f((frameLeft + frameWidth / 2).toDouble(),
+      //       (frameTop + frameHeight / 2).toDouble()),
+      // );
 
-      // Crop the image to the frame dimensions
-      final croppedImage = await cv.getRectSubPixAsync(
-        decodedImage,
-        (frameWidth, frameHeight),
-        cv.Point2f((frameLeft + frameWidth / 2).toDouble(),
-            (frameTop + frameHeight / 2).toDouble()),
-      );
-
-      final croppedBytes = await cv.imencodeAsync('.jpg', croppedImage);
+      final croppedBytes = await cv.imencodeAsync('.jpg', decodedImage);
 
       _images.add(XFile.fromData(croppedBytes.$2, name: image.name));
       if (_images.length >= 2) {
         await _stitchImagesForPreview();
       }
-      if (kDebugMode) {
-        print('Image captured: ${_images.length}');
+
+      if (mounted) {
+        setState(() {
+          _isCapturingPicture = false;
+        });
       }
-      setState(() {
-        _isCapturingPicture = false;
-      });
     }
   }
 
@@ -185,7 +140,7 @@ class LongShotAppState extends State<LongShotApp> {
     _images = [];
     await _captureImage();
     _captureTimer =
-        Timer.periodic(const Duration(milliseconds: 150), (timer) async {
+        Timer.periodic(const Duration(milliseconds: 300), (timer) async {
       await _captureImage();
     });
   }
@@ -217,7 +172,7 @@ class LongShotAppState extends State<LongShotApp> {
     List<XFile> imagesCopy = List<XFile>.from(_images);
     for (var xFile in imagesCopy) {
       final bytes = await xFile.readAsBytes();
-      final image = await cv.imdecodeAsync(bytes, cv.COLOR_YUV2BGR_NV21);
+      final image = await cv.imdecodeAsync(bytes, cv.IMREAD_COLOR);
       matImages.add(image);
     }
 
@@ -229,26 +184,26 @@ class LongShotAppState extends State<LongShotApp> {
     final grayImage =
         await cv.cvtColorAsync(stitchResult.$2, cv.COLOR_BGR2GRAY);
 
-    // // Apply adaptive thresholding
+    // Apply adaptive thresholding
     final thresholdImage = await cv.adaptiveThresholdAsync(
         grayImage, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2);
 
-    // // Apply Gaussian blur to reduce noise
-    final blurredImage = await cv.gaussianBlurAsync(thresholdImage, (5, 5), 0);
-
-    // // Apply contrast enhancement
+    // Apply contrast enhancement
     final contrastEnhancedImage =
-        await cv.convertScaleAbsAsync(blurredImage, alpha: 1.5, beta: 0);
+        await cv.convertScaleAbsAsync(thresholdImage, alpha: 3, beta: 0);
 
     // Apply histogram equalization
     final equalizedImage = await cv.equalizeHistAsync(contrastEnhancedImage);
 
+    // Apply Gaussian blur to reduce noise
+    final blurredImage = await cv.gaussianBlurAsync(equalizedImage, (4, 4), 0);
+
     // Use Morphological Operations to enhance text
-    // final kernel = cv.getStructuringElement(cv.MORPH_RECT, (1, 1));
-    // final dilatedImage = await cv.dilateAsync(thresholdImage, kernel);
+    final kernel = cv.getStructuringElement(cv.MORPH_RECT, (1, 1));
+    final dilatedImage = await cv.dilateAsync(equalizedImage, kernel);
 
     // Encode the processed image to bytes
-    final processedBytes = await cv.imencodeAsync('.jpg', equalizedImage);
+    final processedBytes = await cv.imencodeAsync('.png', dilatedImage);
 
     if (navigateAfterStitching && mounted) {
       Navigator.pushReplacement(
@@ -294,12 +249,6 @@ class LongShotAppState extends State<LongShotApp> {
                     child: CameraPreview(_controller!))
                 : const Center(child: CircularProgressIndicator()),
           ),
-          FrameOverlay(
-            frameLeft: 0,
-            frameTop: 0,
-            frameWidth: MediaQuery.of(context).size.width,
-            frameHeight: MediaQuery.of(context).size.height,
-          ),
           AlignmentOverlay(
             onAlignmentChange: (aligned) {
               setState(() {
@@ -307,7 +256,6 @@ class LongShotAppState extends State<LongShotApp> {
               });
             },
           ),
-          // if (!_isAligned) const CameraGuideOverlay(), // Only show when not aligned
           OverlayPreview(
             child: _stitchedImage.isNotEmpty
                 ? Image.memory(_stitchedImage,
@@ -322,19 +270,19 @@ class LongShotAppState extends State<LongShotApp> {
                         10, // Adjust the size of the preview
                   ),
           ),
-          Positioned(
-            bottom: 10,
-            left: 10,
-            child: IconButton(
-              icon: const Icon(Icons.flash_on),
-              onPressed: () async {
-                await _controller?.setFlashMode(
-                    _controller!.value.flashMode == FlashMode.off
-                        ? FlashMode.torch
-                        : FlashMode.off);
-              },
-            ),
-          ),
+          // Positioned(
+          //   bottom: 10,
+          //   left: 10,
+          //   child: IconButton(
+          //     icon: const Icon(Icons.flash_on),
+          //     onPressed: () async {
+          //       await _controller?.setFlashMode(
+          //           _controller!.value.flashMode == FlashMode.off
+          //               ? FlashMode.torch
+          //               : FlashMode.off);
+          //     },
+          //   ),
+          // ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -345,8 +293,6 @@ class LongShotAppState extends State<LongShotApp> {
     );
   }
 }
-
-// ... rest of your code ...
 
 class OverlayPreview extends StatelessWidget {
   final Widget child;
