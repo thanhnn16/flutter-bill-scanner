@@ -46,22 +46,22 @@ class FrameOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        Positioned.fill(
-          child: ClipPath(
-            clipper: FrameClipper(
-              frameLeft: frameLeft,
-              frameTop: frameTop,
-              frameWidth: frameWidth,
-              frameHeight: frameHeight,
-            ),
-            child: BackdropFilter(
-              filter: ui.ImageFilter.blur(sigmaX: 10.0, sigmaY: 10.0),
-              child: Container(
-                color: Colors.black.withOpacity(0),
-              ),
+        // Sử dụng ClipPath để tạo vùng trong khung được hiển thị rõ ràng
+        ClipPath(
+          clipper: _FrameClipper(
+            left: frameLeft,
+            top: frameTop,
+            width: frameWidth,
+            height: frameHeight,
+          ),
+          child: BackdropFilter(
+            filter: ui.ImageFilter.blur(sigmaX: 10.0, sigmaY: 10.0),
+            child: Container(
+              color: Colors.black.withOpacity(0.5),
             ),
           ),
         ),
+        // Frame overlay on top
         Positioned(
           left: frameLeft,
           top: frameTop,
@@ -75,30 +75,33 @@ class FrameOverlay extends StatelessWidget {
     );
   }
 }
+class _FrameClipper extends CustomClipper<Path> {
+  final double left;
+  final double top;
+  final double width;
+  final double height;
 
-class FrameClipper extends CustomClipper<Path> {
-  final double frameLeft;
-  final double frameTop;
-  final double frameWidth;
-  final double frameHeight;
-
-  FrameClipper({
-    required this.frameLeft,
-    required this.frameTop,
-    required this.frameWidth,
-    required this.frameHeight,
+  _FrameClipper({
+    required this.left,
+    required this.top,
+    required this.width,
+    required this.height,
   });
 
   @override
   Path getClip(Size size) {
-    return Path()
-      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height))
-      ..addRect(Rect.fromLTWH(frameLeft, frameTop, frameWidth, frameHeight))
-      ..fillType = PathFillType.evenOdd;
+    final path = Path();
+
+    // Create the outer rectangle (full screen) as a clockwise path
+    path.addRect(Rect.fromLTWH(0, 0, size.width, size.height));
+
+    // Create the inner rectangle (clear frame) as a counter-clockwise hole
+    path.addRect(Rect.fromLTWH(left, top, width, height));
+    path.fillType = PathFillType.evenOdd;
+
+    return path;
   }
 
   @override
-  bool shouldReclip(covariant CustomClipper<Path> oldClipper) {
-    return false;
-  }
+  bool shouldReclip(CustomClipper<Path> oldClipper) => true;
 }

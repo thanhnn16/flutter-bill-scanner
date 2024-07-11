@@ -1,9 +1,8 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
+import 'package:rxdart/rxdart.dart';
 import 'package:sensors_plus/sensors_plus.dart';
-
-import 'frame/frame_overlay.dart';
+import 'dart:math' as math;
 
 class AlignmentOverlay extends StatefulWidget {
   final Function(bool) onAlignmentChange;
@@ -14,145 +13,160 @@ class AlignmentOverlay extends StatefulWidget {
   AlignmentOverlayState createState() => AlignmentOverlayState();
 }
 
-class AlignmentOverlayState extends State<AlignmentOverlay> {
-  double _arrowPosition = 0.5;
+class AlignmentOverlayState extends State<AlignmentOverlay>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _animationController;
+  late Animation<double> _arrowAnimation;
+
+  final double _arrowWidth = 50.0;
   bool _isMisaligned = false;
-  String _alignmentMessage = 'Camera đã căn chỉnh đúng';
+  String _alignmentMessage = 'Giữ điện thoại thẳng đứng';
+  final double _tiltThreshold = 10.0;
+  StreamSubscription<dynamic>? _sensorSubscription;
 
-  // Sử dụng StreamSubscription để có thể hủy lắng nghe khi không cần thiết
-  StreamSubscription<AccelerometerEvent>? _accelerometerSubscription;
+  double _tiltAngle = 0.0;
 
-  final _averageCount = 4; // Tăng số lượng mẫu trung bình
-  final List<double> _accelerationXHistory = List.filled(4, 0.0);
-  int _historyIndex = 0;
-
-  final double _movementThreshold = 0.02;
-  final double _deadZone = 0.015; // Giảm deadZone để tăng độ nhạy
-
-  // Biến lưu giá trị sai lệch của gia tốc kế theo trục X
-  double _accelerationXBias = 0.0;
+  final KalmanFilter _kalmanFilter = KalmanFilter();
 
   @override
   void initState() {
     super.initState();
-    _calibrateAccelerometer();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 200),
+      vsync: this,
+    );
+
+    _arrowAnimation = Tween<double>(begin: -1.0, end: 1.0).animate(
+        CurvedAnimation(parent: _animationController, curve: Curves.easeInOut));
+
+    _startListening();
   }
 
   @override
   void dispose() {
-    _accelerometerSubscription?.cancel(); // Hủy lắng nghe khi widget bị hủy
+    _sensorSubscription?.cancel();
+    _animationController.dispose();
     super.dispose();
   }
 
-  // Hàm hiệu chỉnh gia tốc kế
-  void _calibrateAccelerometer() async {
-    final accelerometerEvents = await accelerometerEventStream().take(20).toList();
-    double sumX = 0.0;
-    for (var event in accelerometerEvents) {
-      sumX += event.x;
-    }
-    _accelerationXBias = sumX / accelerometerEvents.length;
-
-    // Bắt đầu lắng nghe sau khi hiệu chỉnh
-    _startListening();
-  }
-
-  // Hàm bắt đầu lắng nghe sự kiện từ cảm biến
   void _startListening() {
-    _accelerometerSubscription =
-        accelerometerEventStream().listen((event) {
-          _updateAlignment(event);
+    final accelerometerStream = accelerometerEventStream();
+
+    _sensorSubscription = accelerometerStream
+        .sampleTime(const Duration(milliseconds: 50))
+        .listen((accelEvent) {
+      _updateAlignment(accelEvent);
+    });
+  }
+
+  void _updateAlignment(AccelerometerEvent accelEvent) {
+    double tiltAngle =
+        _calculateTiltAngle(accelEvent.x, accelEvent.y, accelEvent.z);
+
+    // Sử dụng bộ lọc Kalman để làm mượt giá trị tiltAngle
+    _tiltAngle = _kalmanFilter.filter(tiltAngle);
+
+    bool isAligned = (_tiltAngle.abs() <= _tiltThreshold);
+
+    if (mounted) {
+      double normalizedTilt = (_tiltAngle / _tiltThreshold).clamp(-1.0, 1.0);
+      double arrowPosition = (normalizedTilt + 1) / 2;
+
+      // Check if the arrow is within the middle 1/4 of the screen
+      bool isWithinMiddleQuarter =
+          arrowPosition >= 0.4 && arrowPosition <= 0.6;
+
+      if (_isMisaligned != !isAligned || !isWithinMiddleQuarter) {
+        setState(() {
+          _isMisaligned = !isAligned || !isWithinMiddleQuarter;
+          _alignmentMessage = _isMisaligned
+              ? "Giữ điện thoại thẳng đứng"
+              : "Di chuyển camera chậm để quét";
         });
-  }
+        widget.onAlignmentChange(!_isMisaligned);
+      }
 
-  void _updateAlignment(AccelerometerEvent event) {
-    // Trừ giá trị sai lệch đã tính được
-    double calibratedX = event.x - _accelerationXBias;
-
-    // Sử dụng low-pass filter để lọc nhiễu
-    calibratedX = _applyLowPassFilter(calibratedX, _accelerationXHistory[_historyIndex]);
-
-    _accelerationXHistory[_historyIndex] = calibratedX;
-    _historyIndex = (_historyIndex + 1) % _averageCount;
-
-    double sumX = 0.0;
-    for (int i = 0; i < _averageCount; i++) {
-      sumX += _accelerationXHistory[i];
-    }
-    double averageX = sumX / _averageCount;
-
-    // Áp dụng dead zone
-    averageX = (averageX.abs() < _deadZone) ? 0 : averageX;
-
-    // Giảm tốc độ di chuyển của mũi tên
-    double newX = (_arrowPosition + averageX * 0.02).clamp(0.0, 1.0);
-
-    bool newMisalignment = (newX - 0.5).abs() >= _movementThreshold;
-
-    String newAlignmentMessage = newMisalignment
-        ? "Vui lòng nghiêng camera sang ${averageX > 0 ? "trái" : "phải"}"
-        : "Camera đã căn chỉnh đúng";
-
-    // Chỉ setState khi có thay đổi
-    if (_isMisaligned != newMisalignment ||
-        _alignmentMessage != newAlignmentMessage ||
-        _arrowPosition != newX) {
-      setState(() {
-        _arrowPosition = newX;
-        _isMisaligned = newMisalignment;
-        _alignmentMessage = newAlignmentMessage;
-      });
-      widget.onAlignmentChange(!_isMisaligned);
+      _animationController.animateTo(
+          arrowPosition, // Điều chỉnh phạm vi từ [-1, 1] đến [0, 1]
+          curve: Curves.easeInOut);
     }
   }
 
-  // Áp dụng low-pass filter
-  double _applyLowPassFilter(double currentValue, double previousValue, {double alpha = 0.2}) {
-    return alpha * currentValue + (1 - alpha) * previousValue;
+  double _calculateTiltAngle(double x, double y, double z) {
+    return math.atan2(x, math.sqrt(y * y + z * z)) * (180 / math.pi);
   }
 
   @override
   Widget build(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+    final double dividerWidth = screenSize.width / 4;
     return Stack(
       children: [
-        FrameOverlay(
-          frameLeft: 0,
-          frameTop: 0,
-          frameWidth: MediaQuery.of(context).size.width,
-          frameHeight: MediaQuery.of(context).size.height,
-        ),
         Positioned(
-          left: MediaQuery.of(context).size.width * _arrowPosition - 25,
-          top: MediaQuery.of(context).size.height * 0.5 - 25,
-          child: Icon(
-            Icons.arrow_downward,
-            size: 64,
-            color: _isMisaligned ? Colors.red : Colors.green,
+          left: screenSize.width / 2 - dividerWidth / 2,
+          top: 0,
+          bottom: 0,
+          child: Container(
+            width: dividerWidth,
+            color: Colors.grey.withOpacity(0.5),
           ),
         ),
-        if (_isMisaligned)
+        AnimatedBuilder(
+          animation: _arrowAnimation,
+          builder: (context, child) {
+            return Positioned(
+              left: (_arrowAnimation.value *
+                      (screenSize.width - _arrowWidth) /
+                      2) +
+                  screenSize.width / 2 -
+                  _arrowWidth / 2,
+              top: screenSize.height * 0.5 - _arrowWidth / 2,
+              child: Icon(
+                _isMisaligned
+                    ? Icons.warning_amber_rounded
+                    : Icons.arrow_downward_rounded,
+                size: _arrowWidth,
+                color: _isMisaligned ? Colors.red : Colors.green,
+              ),
+            );
+          },
+        ),
+        if (_alignmentMessage.isNotEmpty)
           Positioned(
-            top: MediaQuery.of(context).size.height * 0.5 - 60,
-            left: MediaQuery.of(context).size.width * 0.5 - 100,
-            child: Container(
-              padding: const EdgeInsets.all(8),
-              color: Colors.red,
-              child: Text(
-                _alignmentMessage,
-                style: const TextStyle(color: Colors.white),
+            top: screenSize.height * 0.5 + _arrowWidth,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.all(8.0),
+                decoration: BoxDecoration(
+                  color: _isMisaligned ? Colors.red : Colors.green,
+                  borderRadius: BorderRadius.circular(8.0),
+                ),
+                child: Text(
+                  _alignmentMessage,
+                  style: const TextStyle(
+                      color: Colors.white, fontWeight: FontWeight.bold),
+                ),
               ),
             ),
           ),
-        Positioned(
-          left: MediaQuery.of(context).size.width / 2 - 4,
-          top: 0,
-          bottom: 0,
-          child: const VerticalDivider(
-            color: Colors.grey,
-            thickness: 4,
-          ),
-        ),
       ],
     );
+  }
+}
+
+class KalmanFilter {
+  double q = 0.0001; // Quá trình biến đổi (process variance)
+  double r = 0.1; // Đo lường biến đổi (measurement variance)
+  double p = 1.0; // Sai số ước lượng (estimation error)
+  double x = 0.0; // Giá trị ước lượng ban đầu (initial value)
+
+  double filter(double measurement) {
+    p = p + q;
+    double k = p / (p + r);
+    x = x + k * (measurement - x);
+    p = (1 - k) * p;
+    return x;
   }
 }
