@@ -1,8 +1,9 @@
 import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:sensors_plus/sensors_plus.dart';
-import 'dart:math' as math;
 
 class AlignmentOverlay extends StatefulWidget {
   final Function(bool) onAlignmentChange;
@@ -20,7 +21,7 @@ class AlignmentOverlayState extends State<AlignmentOverlay>
 
   final double _arrowWidth = 50.0;
   bool _isMisaligned = false;
-  String _alignmentMessage = 'Giữ điện thoại thẳng đứng';
+  String _alignmentMessage = 'Đặt bill vào khung';
   final double _tiltThreshold = 15.0;
   StreamSubscription<dynamic>? _sensorSubscription;
 
@@ -59,27 +60,31 @@ class AlignmentOverlayState extends State<AlignmentOverlay>
     });
   }
 
-void _updateAlignment(AccelerometerEvent accelEvent) {
-  double tiltAngle = _calculateTiltAngle(accelEvent.x, accelEvent.y, accelEvent.z);
-  _tiltAngle = _kalmanFilter.filter(tiltAngle);
+  void _updateAlignment(AccelerometerEvent accelEvent) {
+    double tiltAngle =
+        _calculateTiltAngle(accelEvent.x, accelEvent.y, accelEvent.z);
+    _tiltAngle = _kalmanFilter.filter(tiltAngle);
 
-  bool isAligned = (_tiltAngle.abs() <= _tiltThreshold);
-  if (mounted) {
-    double normalizedTilt = (_tiltAngle / _tiltThreshold).clamp(-1.0, 1.0);
-    double arrowPosition = (normalizedTilt + 1) / 2;
-    bool isWithinMiddleQuarter = arrowPosition >= 0.4 && arrowPosition <= 0.6;
+    bool isAligned = (_tiltAngle.abs() <= _tiltThreshold);
+    if (mounted) {
+      double normalizedTilt = (_tiltAngle / _tiltThreshold).clamp(-1.0, 1.0);
+      double arrowPosition = (normalizedTilt + 1) / 2;
+      bool isWithinMiddleQuarter = arrowPosition >= 0.4 && arrowPosition <= 0.6;
+      // print(
+      //     'Tilt angle: $_tiltAngle, isAligned: $isAligned, arrowPosition: $arrowPosition, isWithinMiddleQuarter: $isWithinMiddleQuarter');
+      if (_isMisaligned != !isAligned || !isWithinMiddleQuarter) {
+        setState(() {
+          _isMisaligned = !isAligned || !isWithinMiddleQuarter;
+          _alignmentMessage = _isMisaligned
+              ? "Giữ mũi tên nằm trong khung"
+              : "Di chuyển camera theo hướng bill từ trên xuống";
+        });
+        widget.onAlignmentChange(!_isMisaligned);
+      }
 
-    if (_isMisaligned != !isAligned || !isWithinMiddleQuarter) {
-      setState(() {
-        _isMisaligned = !isAligned || !isWithinMiddleQuarter;
-        _alignmentMessage = _isMisaligned ? "Giữ điện thoại thẳng đứng" : "Di chuyển camera chậm để quét";
-      });
-      widget.onAlignmentChange(!_isMisaligned);
+      _animationController.animateTo(arrowPosition, curve: Curves.easeInOut);
     }
-
-    _animationController.animateTo(arrowPosition, curve: Curves.easeInOut);
   }
-}
 
   double _calculateTiltAngle(double x, double y, double z) {
     return math.atan2(x, math.sqrt(y * y + z * z)) * (180 / math.pi);

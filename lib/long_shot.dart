@@ -16,29 +16,29 @@ class LongShotApp extends StatefulWidget {
   LongShotAppState createState() => LongShotAppState();
 }
 
-// Future<Uint8List> _stitchImagesPreviewIsolate(
-//     List<Uint8List> imageDataList) async {
-//   List<cv.Mat> matImages = [];
-//   for (var imageData in imageDataList) {
-//     final image = await cv.imdecodeAsync(imageData, cv.COLOR_YUV2BGR_NV21);
-//     var resizedImage =
-//         await cv.resizeAsync(image, (200, 320), interpolation: cv.INTER_AREA);
-//     matImages.add(resizedImage);
-//   }
-//
-//   final stitcher = cv.Stitcher.create(mode: cv.StitcherMode.SCANS);
-//   final vecMat = cv.VecMat.fromList(matImages);
-//   final stitchResult = stitcher.stitch(vecMat);
-//
-//   final stitchedBytes = await cv.imencodeAsync('.jpg', stitchResult.$2);
-//
-//   // Clean up OpenCV Mats
-//   for (var matImage in matImages) {
-//     matImage.dispose();
-//   }
-//
-//   return stitchedBytes.$2;
-// }
+Future<Uint8List> _stitchImagesPreviewIsolate(
+    List<Uint8List> imageDataList) async {
+  List<cv.Mat> matImages = [];
+  for (var imageData in imageDataList) {
+    final image = await cv.imdecodeAsync(imageData, cv.COLOR_YUV2BGR_NV21);
+    var resizedImage =
+        await cv.resizeAsync(image, (140, 280), interpolation: cv.INTER_AREA);
+    matImages.add(resizedImage);
+  }
+
+  final stitcher = cv.Stitcher.create(mode: cv.StitcherMode.SCANS);
+  final vecMat = cv.VecMat.fromList(matImages);
+  final stitchResult = stitcher.stitch(vecMat);
+
+  final stitchedBytes = await cv.imencodeAsync('.jpg', stitchResult.$2);
+
+  // Clean up OpenCV Mats
+  for (var matImage in matImages) {
+    matImage.dispose();
+  }
+
+  return stitchedBytes.$2;
+}
 
 Future<Uint8List> _stitchImagesIsolate(List<Uint8List> imageDataList) async {
   List<cv.Mat> matImages = [];
@@ -66,7 +66,7 @@ class LongShotAppState extends State<LongShotApp> {
   bool _isCapturingPicture = false;
   Timer? _captureTimer;
   bool _isAligned = false;
-  // var _stitchedImage = Uint8List(0);
+  var _stitchedImage = Uint8List(0);
   double _currentZoomLevel = 1.0;
   double _baseZoomLevel = 1.0;
   late double maxAllowedZoomLevel;
@@ -85,6 +85,7 @@ class LongShotAppState extends State<LongShotApp> {
       ResolutionPreset.max,
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.yuv420,
+      fps: 30,
     );
     await _controller!.initialize();
 
@@ -104,20 +105,20 @@ class LongShotAppState extends State<LongShotApp> {
   }
 
   // Triggers image stitching in a separate isolate
-  // Future<void> _stitchImagesForPreview() async {
-  //   List<Uint8List> imageDataList = [];
-  //   for (var xFile in _images) {
-  //     imageDataList.add(await xFile.readAsBytes());
-  //   }
-  //   final stitchedImage =
-  //       await compute(_stitchImagesPreviewIsolate, imageDataList);
-  //
-  //   if (mounted) {
-  //     setState(() {
-  //       _stitchedImage = stitchedImage;
-  //     });
-  //   }
-  // }
+  Future<void> _stitchImagesForPreview() async {
+    List<Uint8List> imageDataList = [];
+    for (var xFile in _images) {
+      imageDataList.add(await xFile.readAsBytes());
+    }
+    final stitchedImage =
+        await compute(_stitchImagesPreviewIsolate, imageDataList);
+
+    if (mounted) {
+      setState(() {
+        _stitchedImage = stitchedImage;
+      });
+    }
+  }
 
   Future<void> _captureImage() async {
     if (!_isCapturingPicture && _isAligned) {
@@ -127,14 +128,11 @@ class LongShotAppState extends State<LongShotApp> {
 
       final image = await _controller!.takePicture();
       final bytes = await image.readAsBytes();
-      final decodedImage = await cv.imdecodeAsync(bytes, cv.IMREAD_COLOR);
 
-      final croppedBytes = await cv.imencodeAsync('.jpg', decodedImage);
-
-      _images.add(XFile.fromData(croppedBytes.$2, name: image.name));
-      // if (_images.length >= 2) {
-      //   await _stitchImagesForPreview();
-      // }
+      _images.add(XFile.fromData(bytes, name: image.name));
+      if (_images.length >= 2) {
+        _stitchImagesForPreview();
+      }
 
       if (mounted) {
         setState(() {
@@ -157,7 +155,6 @@ class LongShotAppState extends State<LongShotApp> {
   }
 
   void _stopRecording() async {
-    await _captureImage();
     _captureTimer?.cancel();
     _captureTimer = null;
 
@@ -204,6 +201,17 @@ class LongShotAppState extends State<LongShotApp> {
                     stitchedBytes: stitchedImage,
                   )));
     }
+  }
+
+  // Reset function
+  void _reset() {
+    _images = [];
+    _stitchedImage = Uint8List(0);
+    if (_controller!.value.isStreamingImages) {
+      _controller!.stopImageStream();
+    }
+    _controller!.resumePreview();
+    setState(() {});
   }
 
   @override
@@ -259,20 +267,29 @@ class LongShotAppState extends State<LongShotApp> {
                   : const Center(child: CircularProgressIndicator()),
             ),
           ),
-          // OverlayPreview(
-          //   child: _stitchedImage.isNotEmpty
-          //       ? Image.memory(_stitchedImage,
-          //           fit: BoxFit.cover,
-          //           width: MediaQuery.of(context).size.width / 4,
-          //           height: MediaQuery.of(context).size.height / 4)
-          //       : Container(
-          //           color: Colors.white,
-          //           width: MediaQuery.of(context).size.width /
-          //               4, // Adjust the size of the preview
-          //           height: MediaQuery.of(context).size.height /
-          //               4, // Adjust the size of the preview
-          //         ),
-          // ),
+          OverlayPreview(
+            child: _stitchedImage.isNotEmpty
+                ? Image.memory(_stitchedImage,
+                    fit: BoxFit.contain,
+                    width: MediaQuery.of(context).size.width / 4,
+                    height: MediaQuery.of(context).size.height / 4)
+                : Container(
+                    color: Colors.white,
+                    width: MediaQuery.of(context).size.width /
+                        4, // Adjust the size of the preview
+                    height: MediaQuery.of(context).size.height /
+                        4, // Adjust the size of the preview
+                  ),
+          ),
+          Positioned(
+            bottom: 32,
+            right: 32,
+            child: IconButton(
+              icon: const Icon(Icons.restart_alt_sharp),
+              onPressed: _reset,
+              color: Colors.white,
+            ),
+          )
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
