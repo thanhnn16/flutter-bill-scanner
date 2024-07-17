@@ -44,6 +44,11 @@ dependencies:
   sensors_plus: ^5.0.1
   flutter_bloc: ^8.1.6
   rxdart: ^0.28.0
+  ffi: ^2.1.2
+  file_picker: any
+  path_provider: any
+  native_opencv:
+    path: native_opencv
 
 dev_dependencies:
   flutter_test:

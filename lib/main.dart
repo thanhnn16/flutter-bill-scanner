@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:long_shot_app/long_shot.dart';
 
+import 'native/native_main.dart';
+
 void main() {
   runApp(const MyApp());
 }
@@ -16,7 +18,7 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: const LongShotApp(),
+      home: const NativeMain(),
     );
   }
 }

@@ -49,5 +49,7 @@
 	<string>Cần quyền Micro để truy cập máy ảnh</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Cần quyền truy cập thư viện ảnh</string>
 </dict>
 </plist>
