@@ -42,3 +42,24 @@ Future<bool> requestGalleryPermission() async {
   }
   return false;
 }
+
+Future<bool> requestStoragePermission() async {
+  final status = await Permission.storage.request();
+  if (status.isGranted) {
+    if (kDebugMode) {
+      print('Permission granted');
+    }
+    return true;
+  } else if (status.isDenied) {
+    if (kDebugMode) {
+      print('Permission denied');
+    }
+    return false;
+  } else if (status.isPermanentlyDenied) {
+    if (kDebugMode) {
+      print('Permission permanently denied');
+    }
+    return false;
+  }
+  return false;
+}

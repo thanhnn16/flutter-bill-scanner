@@ -48,25 +48,24 @@ bool isTransformValid(const Mat &H) {
 }
 
 
-Mat stitchBills(const std::vector<cv::Mat> &images) {
-    double work_megapix = 0.1;   // Giảm xuống để tăng tốc độ
+Mat stitchBills(const std::vector <cv::Mat> &images) {
+    double work_megapix = 0.2;   // Giảm xuống để tăng tốc độ
     double seam_megapix = 0.1;
     double compose_megapix = -1;
-    float conf_thresh = 0.3f;
     string features_type = "orb"; // Sử dụng ORB cho tốc độ
     string matcher_type = "affine";
     string estimator_type = "homography";
-    string ba_cost_func = "affine";
-    bool do_wave_correct = false;
+//    string ba_cost_func = "affine";
+//    bool do_wave_correct = true;
     string warp_type = "affine";  // Sử dụng affine warping cho bill hơi cong
-    float match_conf = 0.3f;      // Tăng lên để lọc kết quả khớp tốt hơn
-    bool try_cuda = false;
+    float match_conf = 0.5f;      // Tăng lên để lọc kết quả khớp tốt hơn
+    bool try_cuda = true;
     double warped_image_scale = 1.0;
     double seam_work_aspect = 1.0;
     std::string seam_find_type = "dp_color";
     std::string blend_type = "multiband";
-    int multi_band_levels = 5;
-    float feather_sharpness = 0.02f;
+//    int multi_band_levels = 5;
+//    float feather_sharpness = 0.02f;
 
     int num_images = static_cast<int>(images.size());
     if (num_images < 2) {
@@ -74,32 +73,49 @@ Mat stitchBills(const std::vector<cv::Mat> &images) {
         return Mat();
     }
 
-    //=== 1. Tìm features & Tạo matcher ===
+    vector<Mat> resized_images;
+    double scale = 1.0;
+    if (work_megapix > 0) {
+        scale = min(1.0, sqrt(work_megapix * 1e6 / images[0].total()));
+    }
+    for (const auto & img : images) {
+        Mat resized;
+        if (scale < 1.0) {
+            resize(img, resized, Size(), scale, scale);
+        } else {
+            resized = img.clone();
+        }
+        stitching_log("Resized image size: width=%d, height=%d\n", resized.cols, resized.rows);
+        resized_images.push_back(resized);
+    }
 
+    //=== 1. Tìm features & Tạo matcher ===
     stitching_log("Finding features...\n");
-    Ptr<Feature2D> finder;
+    Ptr <Feature2D> finder;
     if (features_type == "orb") {
-        finder = ORB::create(2000); // Giảm số lượng features tối đa
+        finder = ORB::create(5500); // Giảm số lượng features tối đa
     } else if (features_type == "akaze") {
         finder = AKAZE::create();
+    } else if (features_type == "sift") {
+        finder = SIFT::create();
     } else {
         stitching_log("Unknown 2D features type: '%s'\n", features_type.c_str());
         return Mat();
     }
 
-    vector<ImageFeatures> features(num_images);
+    vector <ImageFeatures> features(num_images);
 
     for (int i = 0; i < num_images; ++i) {
-        vector<KeyPoint> keypoints;
+        vector <KeyPoint> keypoints;
         Mat descriptors;
         // Detect keypoints and compute descriptors for the current image
-        finder->detectAndCompute(images[i], noArray(), keypoints, descriptors);
+        finder->detectAndCompute(resized_images[i], noArray(), keypoints, descriptors);
         features[i].img_idx = i;
         features[i].keypoints = keypoints;
         descriptors.clone().copyTo(features[i].descriptors);
         // Loại bỏ điểm đặc trưng trùng lặp
         auto dist_thresh = 4;
-        vector<Point2f> points;
+        vector <Point2f> points;
         for (size_t j = 0; j < features[i].keypoints.size(); ++j) {
             bool keep = true;
             for (size_t k = 0; k < j; ++k) {
@@ -121,8 +137,8 @@ Mat stitchBills(const std::vector<cv::Mat> &images) {
 
     stitching_log("Features found\n");
 
-    vector<MatchesInfo> pairwise_matches;
-    Ptr<FeaturesMatcher> matcher;
+    vector <MatchesInfo> pairwise_matches;
+    Ptr <FeaturesMatcher> matcher;
     if (matcher_type == "affine")
         matcher = makePtr<AffineBestOf2NearestMatcher>(false, try_cuda, match_conf);
     else if (matcher_type == "homography")
@@ -139,8 +155,8 @@ Mat stitchBills(const std::vector<cv::Mat> &images) {
     matcher->collectGarbage();
 
     // Estimate camera parameters
-    vector<CameraParams> cameras;
-    Ptr<Estimator> estimator;
+    vector <CameraParams> cameras;
+    Ptr <Estimator> estimator;
     if (estimator_type == "homography") {
         estimator = makePtr<HomographyBasedEstimator>();
     } else {
@@ -156,10 +172,13 @@ Mat stitchBills(const std::vector<cv::Mat> &images) {
     for (size_t i = 0; i < cameras.size(); ++i) {
         if (!isTransformValid(cameras[i].R)) {
             // Nếu ma trận R không hợp lệ, thử lại với AffineBasedEstimator
-            stitching_log("Homography estimation failed for image %d. Trying affine estimation...\n", static_cast<int>(i));
-            Ptr<Estimator> affineEstimator = makePtr<AffineBasedEstimator>();
+            stitching_log(
+                    "Homography estimation failed for image %d. Trying affine estimation...\n",
+                    static_cast<int>(i));
+            Ptr <Estimator> affineEstimator = makePtr<AffineBasedEstimator>();
             if (!(*affineEstimator)(features, pairwise_matches, cameras)) {
-                stitching_log("Affine estimation also failed for image %d. Skipping...\n", static_cast<int>(i));
+                stitching_log("Affine estimation also failed for image %d. Skipping...\n",
+                              static_cast<int>(i));
                 continue;
             }
             stitching_log("Affine estimation succeeded for image %d.\n", static_cast<int>(i));
@@ -190,10 +209,10 @@ Mat stitchBills(const std::vector<cv::Mat> &images) {
 
     stitching_log("Warper created\n");
 
-    vector<Point> corners(num_images);
-    vector<UMat> masks_warped(num_images);
-    vector<UMat> images_warped(num_images);
-    vector<Size> sizes(num_images);
+    vector <Point> corners(num_images);
+    vector <UMat> masks_warped(num_images);
+    vector <UMat> images_warped(num_images);
+    vector <Size> sizes(num_images);
 
     stitching_log("Warping images...\n");
 
@@ -212,10 +231,10 @@ Mat stitchBills(const std::vector<cv::Mat> &images) {
         stitching_log("Warping image %d\n", i);
 
         // Điều chỉnh ROI trước khi warping
-        cv::Rect roiBeforeWarping(0, 0, images[i].cols, images[i].rows);
+        cv::Rect roiBeforeWarping(0, 0, resized_images[i].cols, resized_images[i].rows);
         stitching_log("roiBeforeWarping: x=%d, y=%d, width=%d, height=%d\n", roiBeforeWarping.x,
                       roiBeforeWarping.y, roiBeforeWarping.width, roiBeforeWarping.height);
-        cv::Rect adjustedRoi = adjustROI(roiBeforeWarping, images[i]);
+        cv::Rect adjustedRoi = adjustROI(roiBeforeWarping, resized_images[i]);
         stitching_log("adjustedRoi: x=%d, y=%d, width=%d, height=%d\n", adjustedRoi.x,
                       adjustedRoi.y, adjustedRoi.width, adjustedRoi.height);
 
@@ -236,7 +255,8 @@ Mat stitchBills(const std::vector<cv::Mat> &images) {
 
         // Sử dụng adjustedRoi nếu cần thiết. Trong ví dụ này, chúng ta sử dụng toàn bộ ảnh.
         try {
-            corners[i] = warper->warp(images[i](adjustedRoi), K, cameras[i].R, INTER_LINEAR, BORDER_REFLECT, images_warped[i]);
+            corners[i] = warper->warp(resized_images[i](adjustedRoi), K, H, INTER_LINEAR, BORDER_REFLECT,
+                                      images_warped[i]);
         } catch (const cv::Exception &e) {
             stitching_log("OpenCV Exception (warp): %s\n", e.what());
 //            images.erase(images.begin() + i);
@@ -246,7 +266,8 @@ Mat stitchBills(const std::vector<cv::Mat> &images) {
 
         sizes[i] = images_warped[i].size();
 
-        stitching_log("Image warped size: width=%d, height=%d\n", sizes[i].width, sizes[i].height); // In ra kích thước ảnh warped
+        stitching_log("Image warped size: width=%d, height=%d\n", sizes[i].width,
+                      sizes[i].height); // In ra kích thước ảnh warped
 
         if (sizes[i].width == 0 || sizes[i].height == 0) {
             stitching_log("Error: Warped image size is zero. Skipping...\n");
@@ -257,13 +278,16 @@ Mat stitchBills(const std::vector<cv::Mat> &images) {
         masks_warped[i].setTo(Scalar::all(255));
     }
 
-    // Initialize the exposure compensator
-    Ptr<ExposureCompensator> compensator = ExposureCompensator::createDefault(
-            ExposureCompensator::GAIN_BLOCKS);
+    // Thay vì:
+// Ptr<ExposureCompensator> compensator = ExposureCompensator::createDefault(ExposureCompensator::GAIN_BLOCKS);
+// Sử dụng:
+    Ptr <ExposureCompensator> compensator = makePtr<NoExposureCompensator>();
 
     // Prepare the images and masks for exposure compensation
-    vector<UMat> images_for_compensation(num_images);
-    vector<UMat> masks_for_compensation(num_images);
+    stitching_log("Preparing images for exposure compensation...\n");
+
+    vector <UMat> images_for_compensation(num_images);
+    vector <UMat> masks_for_compensation(num_images);
     for (int i = 0; i < num_images; ++i) {
         images_warped[i].convertTo(images_for_compensation[i],
                                    CV_16S); // Convert images to 16-bit signed for compensation
@@ -273,13 +297,17 @@ Mat stitchBills(const std::vector<cv::Mat> &images) {
     // Feed the images and masks to the compensator
     compensator->feed(corners, images_for_compensation, masks_for_compensation);
 
+
     // Apply exposure compensation
+    stitching_log("Applying exposure compensation...\n");
+
     for (int i = 0; i < num_images; ++i) {
         compensator->apply(i, corners[i], images_warped[i], masks_warped[i]);
     }
 
     // Find seams
-    Ptr<SeamFinder> seam_finder;
+    stitching_log("Finding seams...\n");
+    Ptr <SeamFinder> seam_finder;
     if (seam_find_type == "no")
         seam_finder = makePtr<NoSeamFinder>();
     else if (seam_find_type == "voronoi")
@@ -297,10 +325,29 @@ Mat stitchBills(const std::vector<cv::Mat> &images) {
         return Mat();
     }
 
-    seam_finder->find(images_warped, corners, masks_warped);
+
+    vector<UMat> resized_images_warped;
+    if (seam_megapix > 0) {
+        double seam_scale = min(1.0, sqrt(seam_megapix * 1e6 / images_warped[0].total()));
+        for (auto & img : images_warped) {
+            UMat resized;
+            if (seam_scale < 1.0) {
+                resize(img, resized, Size(), seam_scale, seam_scale);
+            } else {
+                resized = img.clone();
+            }
+            resized_images_warped.push_back(resized);
+        }
+        seam_finder->find(resized_images_warped, corners, masks_warped);
+        stitching_log("Seams found\n");
+    } else {
+        seam_finder->find(images_warped, corners, masks_warped);
+        stitching_log("Seams found\n");
+    }
 
     // Blend images
-    Ptr<Blender> blender;
+    stitching_log("Blending images...\n");
+    Ptr <Blender> blender;
     if (blend_type == "no")
         blender = Blender::createDefault(Blender::NO);
     else if (blend_type == "feather")
@@ -313,6 +360,7 @@ Mat stitchBills(const std::vector<cv::Mat> &images) {
     }
 
     blender->prepare(corners, sizes);
+    stitching_log("Blender prepared\n");
 
     for (int i = 0; i < num_images; ++i) {
         blender->feed(images_warped[i], masks_warped[i], corners[i]);
@@ -320,6 +368,80 @@ Mat stitchBills(const std::vector<cv::Mat> &images) {
 
     Mat result, result_mask;
     blender->blend(result, result_mask);
+    stitching_log("Blending done\n");
+
+    if (compose_megapix > 0) {
+        double compose_scale = min(1.0, sqrt(compose_megapix * 1e6 / result.total()));
+        if (compose_scale < 1.0) {
+            resize(result, result, Size(), compose_scale, compose_scale);
+        }
+    }
+
+    // === 4. Cắt 4 góc của bill ===
+    // Tìm contour của bill
+    stitching_log("Finding bill contour...\n");
+    Mat grayResult;
+    cvtColor(result, grayResult, COLOR_BGR2GRAY);
+    threshold(grayResult, grayResult, 1, 255, THRESH_BINARY);
+    vector<vector<Point>> contours;
+    findContours(grayResult, contours, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+
+    // Chọn contour lớn nhất (giả sử bill là đối tượng lớn nhất)
+    int largestContourIndex = 0;
+    double largestContourArea = 0;
+    for (int i = 0; i < contours.size(); i++) {
+        double area = contourArea(contours[i]);
+        if (area > largestContourArea) {
+            largestContourArea = area;
+            largestContourIndex = i;
+        }
+    }
+
+    stitching_log("Largest contour found\n");
+
+    // Tìm bounding rect của contour lớn nhất
+    Rect billRect = boundingRect(contours[largestContourIndex]);
+
+    stitching_log("Bounding rect found\n");
+
+    // Cắt ảnh theo bounding rect
+    result = result(billRect);
+
+    // === 5. Làm phẳng bill (sử dụng perspective transform) ===
+    stitching_log("Flattening bill...\n");
+    // Tìm 4 góc của bill
+    stitching_log("Bill rect: x=%d, y=%d, width=%d, height=%d\n", billRect.x, billRect.y, billRect.width, billRect.height);
+    vector<Point2f> billCorners(4);
+    billCorners[0] = Point2f(billRect.x, billRect.y);                   // Góc trên bên trái
+    billCorners[1] = Point2f(billRect.x + billRect.width, billRect.y);          // Góc trên bên phải
+    billCorners[2] = Point2f(billRect.x + billRect.width, billRect.y + billRect.height); // Góc dưới bên phải
+    billCorners[3] = Point2f(billRect.x, billRect.y + billRect.height);         // Góc dưới bên trái
+
+    // Xác định kích thước ảnh đầu ra sau khi làm phẳng
+    float maxWidth = max(norm(billCorners[0] - billCorners[1]), norm(billCorners[2] - billCorners[3]));
+    float maxHeight = max(norm(billCorners[1] - billCorners[2]), norm(billCorners[3] - billCorners[0]));
+    Size outputSize(maxWidth, maxHeight);
+
+    stitching_log("Output size: width=%d, height=%d\n", outputSize.width, outputSize.height);
+
+    // Tạo ma trận đích cho perspective transform
+    vector<Point2f> outputCorners(4);
+    outputCorners[0] = Point2f(0, 0);
+    outputCorners[1] = Point2f(outputSize.width - 1, 0);
+    outputCorners[2] = Point2f(outputSize.width - 1, outputSize.height - 1);
+    outputCorners[3] = Point2f(0, outputSize.height - 1);
+
+    // Tính toán ma trận perspective transform
+    Mat perspectiveTransform = getPerspectiveTransform(billCorners, outputCorners);
+
+    stitching_log("Perspective transform computed\n");
+
+    // Áp dụng perspective transform để làm phẳng bill
+    warpPerspective(result, result, perspectiveTransform, outputSize);
+
+    stitching_log("Bill flattened\n");
+
+    stitching_log("Stitching completed\n");
 
     return result;
 }

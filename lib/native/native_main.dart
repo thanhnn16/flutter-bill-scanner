@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:long_shot_app/native/scan_bill.dart';
+import 'package:long_shot_app/permission.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../display_image.dart';
@@ -119,10 +120,17 @@ class NativeMainState extends State<NativeMain> {
   void initState() {
     super.initState();
     _initializeTempDir();
+    _initializePerm();
   }
 
   Future<void> _initializeTempDir() async {
     tempDir = await getTemporaryDirectory();
+  }
+
+  Future<void> _initializePerm() async {
+    await requestCameraPermission();
+    await requestGalleryPermission();
+    await requestStoragePermission();
   }
 
   // Static function for the isolate
@@ -138,7 +146,6 @@ class NativeMainState extends State<NativeMain> {
       appBar: AppBar(title: const Text(title)),
       body: Stack(
         children: <Widget>[
-          if (_isLoading) const Center(child: CircularProgressIndicator()),
           Center(
             child: ListView(
               shrinkWrap: true,
@@ -182,6 +189,15 @@ class NativeMainState extends State<NativeMain> {
             ),
           ),
           if (_isWorking)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black.withOpacity(.7),
+                child: const Center(
+                  child: CircularProgressIndicator(),
+                ),
+              ),
+            ),
+          if (_isLoading)
             Positioned.fill(
               child: Container(
                 color: Colors.black.withOpacity(.7),

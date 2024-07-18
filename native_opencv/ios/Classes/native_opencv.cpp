@@ -43,12 +43,19 @@ void stitch_images(const char **imagePaths, int numImages, char *outputImagePath
             return;
         }
     }
+
     for (int i = 0; i < numImages; ++i) {
         images.push_back(cv::imread(imagePaths[i]));
     }
 
     try {
         long long int start = get_now();
+
+        for (int i = 0; i < numImages; ++i) {
+            if (images[i].type() != CV_8UC3) {
+                cvtColor(images[i], images[i], COLOR_BGR2BGRA); // Chuyển đổi sang CV_8UC3 nếu cần
+            }
+        }
 
         Mat pano = stitchBills(images);
 
