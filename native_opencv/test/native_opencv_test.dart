@@ -1,7 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import '../lib/native_opencv.dart';
+import 'package:native_opencv/native_opencv.dart';
 
 void main() {
   const MethodChannel channel = MethodChannel('native_opencv');

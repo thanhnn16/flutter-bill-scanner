@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:long_shot_app/long_shot.dart';
 
 import 'native/native_main.dart';
 

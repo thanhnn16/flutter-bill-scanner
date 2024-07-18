@@ -1,12 +1,13 @@
-import 'package:flutter/foundation.dart';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
-import 'package:long_shot_app/long_shot.dart';
+import 'package:long_shot_app/native/native_main.dart';
 import 'package:photo_view/photo_view.dart';
 
 class DisplayImage extends StatefulWidget {
-  final Uint8List stitchedBytes;
+  final String imagePath;
 
-  const DisplayImage({super.key, required this.stitchedBytes});
+  const DisplayImage({super.key, required this.imagePath});
 
   @override
   State<DisplayImage> createState() => _DisplayImageState();
@@ -27,7 +28,7 @@ class _DisplayImageState extends State<DisplayImage> {
               children: [
                 PhotoView(
                   key: _imageKey,
-                  imageProvider: MemoryImage(widget.stitchedBytes),
+                  imageProvider: Image.file(File(widget.imagePath)).image,
                 ),
                 Positioned(
                   top: 32,
@@ -38,7 +39,7 @@ class _DisplayImageState extends State<DisplayImage> {
                       Navigator.pushReplacement(
                           context,
                           MaterialPageRoute(
-                              builder: (context) => const LongShotApp()));
+                              builder: (context) => const NativeMain()));
                     },
                     color: Colors.white,
                   ),

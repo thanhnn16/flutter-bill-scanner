@@ -6,7 +6,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:long_shot_app/native/scan_bill.dart';
+import 'package:path_provider/path_provider.dart';
 
+import '../display_image.dart';
 import 'native_opencv.dart';
 
 const title = 'Native OpenCV Example';
@@ -24,7 +26,7 @@ class NativeMain extends StatefulWidget {
 
 class NativeMainState extends State<NativeMain> {
   final _picker = ImagePicker();
-
+  bool _isLoading = false;
   final bool _isProcessed = false;
   final bool _isWorking = false;
 
@@ -74,6 +76,9 @@ class NativeMainState extends State<NativeMain> {
   }
 
   Future<void> stitchImagesAndShow(List<String?> imagePaths) async {
+    setState(() {
+      _isLoading = true;
+    });
     final outputPath = '${tempDir.path}/stitched_image.jpg';
 
     // Creating a port for communication with isolate and arguments for entry point
@@ -96,13 +101,31 @@ class NativeMainState extends State<NativeMain> {
       // Cancel a subscription after message received called
       await sub.cancel();
 
-      setState(() {
-        // Update the UI to show the stitched image or indicate the stitching process is complete
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => DisplayImage(imagePath: outputPath),
+          ),
+        );
+      }
     });
   }
 
-// Static function for the isolate
+  @override
+  void initState() {
+    super.initState();
+    _initializeTempDir();
+  }
+
+  Future<void> _initializeTempDir() async {
+    tempDir = await getTemporaryDirectory();
+  }
+
+  // Static function for the isolate
   static void stitchImagesInBackground(StitchImagesArguments args) {
     // Call the native stitching function
     stitchImages(StitchImagesArguments(args.imagePaths, args.outputPath));
@@ -115,6 +138,7 @@ class NativeMainState extends State<NativeMain> {
       appBar: AppBar(title: const Text(title)),
       body: Stack(
         children: <Widget>[
+          if (_isLoading) const Center(child: CircularProgressIndicator()),
           Center(
             child: ListView(
               shrinkWrap: true,

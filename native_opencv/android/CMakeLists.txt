@@ -1,24 +1,21 @@
 cmake_minimum_required(VERSION 3.19)
 project(NativeOpenCV)
 
-# Include the OpenCV headers
-include_directories(../include)
+set(OpenCV_DIR ../.././../OpenCV-android-sdk/sdk/native/jni)
 
-# Import the OpenCV library
-add_library(lib_opencv SHARED IMPORTED)
-set_target_properties(lib_opencv PROPERTIES IMPORTED_LOCATION
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/main/jniLibs/${ANDROID_ABI}/libopencv_java4.so)
-
-# Ensure the OpenCV library was found
-if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/src/main/jniLibs/${ANDROID_ABI}/libopencv_java4.so)
-    message(FATAL_ERROR "OpenCV library not found at ${CMAKE_CURRENT_SOURCE_DIR}/src/main/jniLibs/${ANDROID_ABI}/libopencv_java4.so")
-endif()
-
-# Find the log library
+# Tìm kiếm thư viện OpenCV với các modules cần thiết:
+find_package(OpenCV REQUIRED COMPONENTS core imgcodecs imgproc stitching)
 find_library(log-lib log)
 
-# Add your native library
-add_library(native_opencv SHARED ../ios/Classes/native_opencv.cpp)
+message("Building for Android ABI: ${ANDROID_ABI}")
+message("OpenCV library path: ${OpenCV_LIBS}")
+message("OpenCV include directories: ${OpenCV_INCLUDE_DIRS}")
 
-# Link your native library with OpenCV and log library
-target_link_libraries(native_opencv lib_opencv ${log-lib})
+# Thêm thư viện native:
+add_library(native_opencv SHARED ../ios/Classes/native_opencv.cpp ../ios/Classes/bill_stitching.cpp)
+
+# Liên kết thư viện native với OpenCV:
+target_link_libraries(native_opencv ${OpenCV_LIBS} ${log-lib})
+
+# Thêm đường dẫn đến thư mục include của OpenCV:
+target_include_directories(native_opencv PRIVATE ${OpenCV_INCLUDE_DIRS})

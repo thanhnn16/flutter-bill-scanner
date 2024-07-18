@@ -9,6 +9,7 @@ typedef _CStitchImagesFunc = ffi.Void Function(
     ffi.Int32,
     ffi.Pointer<Utf8>,
     );
+
 // Dart function signatures
 typedef _VersionFunc = ffi.Pointer<Utf8> Function();
 typedef _StitchImagesFunc = void Function(

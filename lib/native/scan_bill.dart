@@ -5,9 +5,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:long_shot_app/widgets/frame/frame_overlay.dart';
 import 'package:long_shot_app/widgets/overlay.dart';
-import 'package:opencv_dart/opencv_dart.dart' as cv;
-
-import '../display_image.dart';
 
 
 class ScanBillScreen extends StatefulWidget {
@@ -15,49 +12,6 @@ class ScanBillScreen extends StatefulWidget {
 
   @override
   ScanBillScreenState createState() => ScanBillScreenState();
-}
-
-Future<Uint8List> _stitchImagesPreviewIsolate(
-    List<Uint8List> imageDataList) async {
-  List<cv.Mat> matImages = [];
-  for (var imageData in imageDataList) {
-    final image = await cv.imdecodeAsync(imageData, cv.COLOR_YUV2BGR_NV21);
-    var resizedImage =
-        await cv.resizeAsync(image, (140, 280), interpolation: cv.INTER_AREA);
-    matImages.add(resizedImage);
-  }
-
-  final stitcher = cv.Stitcher.create(mode: cv.StitcherMode.SCANS);
-  final vecMat = cv.VecMat.fromList(matImages);
-  final stitchResult = stitcher.stitch(vecMat);
-
-  final stitchedBytes = await cv.imencodeAsync('.jpg', stitchResult.$2);
-
-  // Clean up OpenCV Mats
-  for (var matImage in matImages) {
-    matImage.dispose();
-  }
-
-  return stitchedBytes.$2;
-}
-
-Future<Uint8List> _stitchImagesIsolate(List<Uint8List> imageDataList) async {
-  List<cv.Mat> matImages = [];
-  for (var imageData in imageDataList) {
-    final image = await cv.imdecodeAsync(imageData, cv.COLOR_YUV2BGR_NV21);
-    matImages.add(image);
-  }
-
-  final stitcher = cv.Stitcher.create(mode: cv.StitcherMode.SCANS);
-  final vecMat = cv.VecMat.fromList(matImages);
-  final stitchResult = stitcher.stitch(vecMat);
-
-  final stitchedBytes = await cv.imencodeAsync('.png', stitchResult.$2);
-
-  for (var matImage in matImages) {
-    matImage.dispose();
-  }
-  return stitchedBytes.$2;
 }
 
 class ScanBillScreenState extends State<ScanBillScreen> {
@@ -107,18 +61,7 @@ class ScanBillScreenState extends State<ScanBillScreen> {
 
   // Triggers image stitching in a separate isolate
   Future<void> _stitchImagesForPreview() async {
-    List<Uint8List> imageDataList = [];
-    for (var xFile in _images) {
-      imageDataList.add(await xFile.readAsBytes());
-    }
-    final stitchedImage =
-        await compute(_stitchImagesPreviewIsolate, imageDataList);
 
-    if (mounted) {
-      setState(() {
-        _stitchedImage = stitchedImage;
-      });
-    }
   }
 
   Future<void> _captureImage() async {
@@ -169,39 +112,6 @@ class ScanBillScreenState extends State<ScanBillScreen> {
 
     // _stitchImagesForPreview();
     await _controller?.pausePreview();
-    _stitchImages(navigateAfterStitching: true);
-  }
-
-  // Stitches images in the background using compute
-  Future<void> _stitchImages({required bool navigateAfterStitching}) async {
-    if (_images.length < 2) {
-      return;
-    }
-    if (navigateAfterStitching) {
-      showDialog(
-        context: context,
-        builder: (context) {
-          return const Center(
-            child: CircularProgressIndicator(),
-          );
-        },
-      );
-    }
-    List<Uint8List> imageDataList = [];
-    for (var xFile in _images) {
-      imageDataList.add(await xFile.readAsBytes());
-    }
-    final stitchedImage = await compute(_stitchImagesIsolate, imageDataList);
-
-    if (navigateAfterStitching && mounted) {
-      Navigator.pop(context);
-      Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-              builder: (context) => DisplayImage(
-                    stitchedBytes: stitchedImage,
-                  )));
-    }
   }
 
   // Reset function
