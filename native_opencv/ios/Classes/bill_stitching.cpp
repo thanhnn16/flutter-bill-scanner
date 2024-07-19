@@ -1,6 +1,6 @@
-// bill_stitching.cpp
+#include "opencv2/opencv.hpp"
 #include "opencv2/opencv_modules.hpp"
-#include <opencv2/core/utility.hpp>
+#include "opencv2/core/utility.hpp"
 #include "opencv2/stitching/detail/autocalib.hpp"
 #include "opencv2/stitching/detail/blenders.hpp"
 #include "opencv2/stitching/detail/camera.hpp"
@@ -10,6 +10,7 @@
 #include "opencv2/stitching/detail/seam_finders.hpp"
 #include "opencv2/stitching/detail/warpers.hpp"
 #include "opencv2/stitching/warpers.hpp"
+#include "bill_stitching.hpp"
 
 #ifdef __ANDROID__
 #include <android/log.h>
@@ -17,6 +18,7 @@
 using namespace std;
 using namespace cv;
 using namespace cv::detail;
+
 
 void stitching_log(const char *fmt, ...) {
     va_list args;
@@ -47,12 +49,12 @@ bool isTransformValid(const Mat &H) {
     return true;
 }
 
-
-Mat stitchBills(const std::vector <cv::Mat> &images) {
+Mat cv::bill_stitching::stitchBills(const std::vector<cv::Mat> &images) {
     double work_megapix = 0.2;   // Giảm xuống để tăng tốc độ
     double seam_megapix = 0.1;
     double compose_megapix = -1;
-    string features_type = "orb"; // Sử dụng ORB cho tốc độ
+//    string features_type = "orb"; // Sử dụng ORB cho tốc độ
+    string features_type = "brisk"; // Sử dụng BRISK cho tốc độ và độ chính xác
     string matcher_type = "affine";
     string estimator_type = "homography";
 //    string ba_cost_func = "affine";
@@ -73,12 +75,12 @@ Mat stitchBills(const std::vector <cv::Mat> &images) {
         return Mat();
     }
 
-    vector<Mat> resized_images;
+    vector <Mat> resized_images;
     double scale = 1.0;
     if (work_megapix > 0) {
         scale = min(1.0, sqrt(work_megapix * 1e6 / images[0].total()));
     }
-    for (const auto & img : images) {
+    for (const auto &img: images) {
         Mat resized;
         if (scale < 1.0) {
             resize(img, resized, Size(), scale, scale);
@@ -91,13 +93,15 @@ Mat stitchBills(const std::vector <cv::Mat> &images) {
 
     //=== 1. Tìm features & Tạo matcher ===
     stitching_log("Finding features...\n");
-    Ptr <Feature2D> finder;
+    Ptr<Feature2D> finder;
     if (features_type == "orb") {
         finder = ORB::create(5500); // Giảm số lượng features tối đa
     } else if (features_type == "akaze") {
         finder = AKAZE::create();
     } else if (features_type == "sift") {
         finder = SIFT::create();
+    } else if (features_type == "brisk") {
+        finder = BRISK::create();
     } else {
         stitching_log("Unknown 2D features type: '%s'\n", features_type.c_str());
         return Mat();
@@ -119,8 +123,7 @@ Mat stitchBills(const std::vector <cv::Mat> &images) {
         for (size_t j = 0; j < features[i].keypoints.size(); ++j) {
             bool keep = true;
             for (size_t k = 0; k < j; ++k) {
-                if (norm(features[i].keypoints[j].pt - features[i].keypoints[k].pt) <
-                    dist_thresh) {
+                if (norm(features[i].keypoints[j].pt - features[i].keypoints[k].pt) < dist_thresh) {
                     keep = false;
                     break;
                 }
@@ -138,7 +141,7 @@ Mat stitchBills(const std::vector <cv::Mat> &images) {
     stitching_log("Features found\n");
 
     vector <MatchesInfo> pairwise_matches;
-    Ptr <FeaturesMatcher> matcher;
+    Ptr<FeaturesMatcher> matcher;
     if (matcher_type == "affine")
         matcher = makePtr<AffineBestOf2NearestMatcher>(false, try_cuda, match_conf);
     else if (matcher_type == "homography")
@@ -156,7 +159,7 @@ Mat stitchBills(const std::vector <cv::Mat> &images) {
 
     // Estimate camera parameters
     vector <CameraParams> cameras;
-    Ptr <Estimator> estimator;
+    Ptr<Estimator> estimator;
     if (estimator_type == "homography") {
         estimator = makePtr<HomographyBasedEstimator>();
     } else {
@@ -175,7 +178,7 @@ Mat stitchBills(const std::vector <cv::Mat> &images) {
             stitching_log(
                     "Homography estimation failed for image %d. Trying affine estimation...\n",
                     static_cast<int>(i));
-            Ptr <Estimator> affineEstimator = makePtr<AffineBasedEstimator>();
+            Ptr<Estimator> affineEstimator = makePtr<AffineBasedEstimator>();
             if (!(*affineEstimator)(features, pairwise_matches, cameras)) {
                 stitching_log("Affine estimation also failed for image %d. Skipping...\n",
                               static_cast<int>(i));
@@ -255,8 +258,8 @@ Mat stitchBills(const std::vector <cv::Mat> &images) {
 
         // Sử dụng adjustedRoi nếu cần thiết. Trong ví dụ này, chúng ta sử dụng toàn bộ ảnh.
         try {
-            corners[i] = warper->warp(resized_images[i](adjustedRoi), K, H, INTER_LINEAR, BORDER_REFLECT,
-                                      images_warped[i]);
+            corners[i] = warper->warp(resized_images[i](adjustedRoi), K, H, INTER_LINEAR,
+                                      BORDER_REFLECT, images_warped[i]);
         } catch (const cv::Exception &e) {
             stitching_log("OpenCV Exception (warp): %s\n", e.what());
 //            images.erase(images.begin() + i);
@@ -281,7 +284,7 @@ Mat stitchBills(const std::vector <cv::Mat> &images) {
     // Thay vì:
 // Ptr<ExposureCompensator> compensator = ExposureCompensator::createDefault(ExposureCompensator::GAIN_BLOCKS);
 // Sử dụng:
-    Ptr <ExposureCompensator> compensator = makePtr<NoExposureCompensator>();
+    Ptr<ExposureCompensator> compensator = makePtr<NoExposureCompensator>();
 
     // Prepare the images and masks for exposure compensation
     stitching_log("Preparing images for exposure compensation...\n");
@@ -307,7 +310,7 @@ Mat stitchBills(const std::vector <cv::Mat> &images) {
 
     // Find seams
     stitching_log("Finding seams...\n");
-    Ptr <SeamFinder> seam_finder;
+    Ptr<SeamFinder> seam_finder;
     if (seam_find_type == "no")
         seam_finder = makePtr<NoSeamFinder>();
     else if (seam_find_type == "voronoi")
@@ -326,10 +329,10 @@ Mat stitchBills(const std::vector <cv::Mat> &images) {
     }
 
 
-    vector<UMat> resized_images_warped;
+    vector <UMat> resized_images_warped;
     if (seam_megapix > 0) {
         double seam_scale = min(1.0, sqrt(seam_megapix * 1e6 / images_warped[0].total()));
-        for (auto & img : images_warped) {
+        for (auto &img: images_warped) {
             UMat resized;
             if (seam_scale < 1.0) {
                 resize(img, resized, Size(), seam_scale, seam_scale);
@@ -347,7 +350,7 @@ Mat stitchBills(const std::vector <cv::Mat> &images) {
 
     // Blend images
     stitching_log("Blending images...\n");
-    Ptr <Blender> blender;
+    Ptr<Blender> blender;
     if (blend_type == "no")
         blender = Blender::createDefault(Blender::NO);
     else if (blend_type == "feather")
@@ -383,7 +386,7 @@ Mat stitchBills(const std::vector <cv::Mat> &images) {
     Mat grayResult;
     cvtColor(result, grayResult, COLOR_BGR2GRAY);
     threshold(grayResult, grayResult, 1, 255, THRESH_BINARY);
-    vector<vector<Point>> contours;
+    vector <vector<Point>> contours;
     findContours(grayResult, contours, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
 
     // Chọn contour lớn nhất (giả sử bill là đối tượng lớn nhất)
@@ -410,22 +413,26 @@ Mat stitchBills(const std::vector <cv::Mat> &images) {
     // === 5. Làm phẳng bill (sử dụng perspective transform) ===
     stitching_log("Flattening bill...\n");
     // Tìm 4 góc của bill
-    stitching_log("Bill rect: x=%d, y=%d, width=%d, height=%d\n", billRect.x, billRect.y, billRect.width, billRect.height);
-    vector<Point2f> billCorners(4);
+    stitching_log("Bill rect: x=%d, y=%d, width=%d, height=%d\n", billRect.x, billRect.y,
+                  billRect.width, billRect.height);
+    vector <Point2f> billCorners(4);
     billCorners[0] = Point2f(billRect.x, billRect.y);                   // Góc trên bên trái
     billCorners[1] = Point2f(billRect.x + billRect.width, billRect.y);          // Góc trên bên phải
-    billCorners[2] = Point2f(billRect.x + billRect.width, billRect.y + billRect.height); // Góc dưới bên phải
+    billCorners[2] = Point2f(billRect.x + billRect.width,
+                             billRect.y + billRect.height); // Góc dưới bên phải
     billCorners[3] = Point2f(billRect.x, billRect.y + billRect.height);         // Góc dưới bên trái
 
     // Xác định kích thước ảnh đầu ra sau khi làm phẳng
-    float maxWidth = max(norm(billCorners[0] - billCorners[1]), norm(billCorners[2] - billCorners[3]));
-    float maxHeight = max(norm(billCorners[1] - billCorners[2]), norm(billCorners[3] - billCorners[0]));
+    float maxWidth = max(norm(billCorners[0] - billCorners[1]),
+                         norm(billCorners[2] - billCorners[3]));
+    float maxHeight = max(norm(billCorners[1] - billCorners[2]),
+                          norm(billCorners[3] - billCorners[0]));
     Size outputSize(maxWidth, maxHeight);
 
     stitching_log("Output size: width=%d, height=%d\n", outputSize.width, outputSize.height);
 
     // Tạo ma trận đích cho perspective transform
-    vector<Point2f> outputCorners(4);
+    vector <Point2f> outputCorners(4);
     outputCorners[0] = Point2f(0, 0);
     outputCorners[1] = Point2f(outputSize.width - 1, 0);
     outputCorners[2] = Point2f(outputSize.width - 1, outputSize.height - 1);

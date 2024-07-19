@@ -1,7 +1,7 @@
-#include <opencv2/opencv.hpp>
-#include <chrono>
-#include <vector>
-#include "bill_stitching.h"
+#include "opencv2/opencv.hpp"
+#include "chrono"
+#include "vector"
+#include "bill_stitching.hpp"
 
 #ifdef __ANDROID__
 #include <android/log.h>
@@ -57,7 +57,7 @@ void stitch_images(const char **imagePaths, int numImages, char *outputImagePath
             }
         }
 
-        Mat pano = stitchBills(images);
+        Mat pano = cv::bill_stitching::stitchBills(images);
 
         imwrite(outputImagePath, pano);
         long long int end = get_now();

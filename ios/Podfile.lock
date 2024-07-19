@@ -40,8 +40,6 @@ PODS:
     - Flutter
   - native_opencv (0.0.1):
     - Flutter
-  - opencv_dart (0.0.1):
-    - Flutter
   - path_provider_foundation (0.0.1):
     - Flutter
     - FlutterMacOS
@@ -60,7 +58,6 @@ DEPENDENCIES:
   - Flutter (from `Flutter`)
   - image_picker_ios (from `.symlinks/plugins/image_picker_ios/ios`)
   - native_opencv (from `.symlinks/plugins/native_opencv/ios`)
-  - opencv_dart (from `.symlinks/plugins/opencv_dart/ios`)
   - path_provider_foundation (from `.symlinks/plugins/path_provider_foundation/darwin`)
   - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
   - sensors_plus (from `.symlinks/plugins/sensors_plus/ios`)
@@ -83,8 +80,6 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/image_picker_ios/ios"
   native_opencv:
     :path: ".symlinks/plugins/native_opencv/ios"
-  opencv_dart:
-    :path: ".symlinks/plugins/opencv_dart/ios"
   path_provider_foundation:
     :path: ".symlinks/plugins/path_provider_foundation/darwin"
   permission_handler_apple:
@@ -99,8 +94,7 @@ SPEC CHECKSUMS:
   file_picker: 09aa5ec1ab24135ccd7a1621c46c84134bfd6655
   Flutter: e0871f40cf51350855a761d2e70bf5af5b9b5de7
   image_picker_ios: c560581cceedb403a6ff17f2f816d7fea1421fc1
-  native_opencv: 502ebf09cc63947df440a41739ba96e88e1ea2fa
-  opencv_dart: 25b6a7c63435efdbd51c88a8682272662539bf7a
+  native_opencv: aa61a4ffdf837d30f95961dabf6ea0e943afd328
   path_provider_foundation: 2b6b4c569c0fb62ec74538f866245ac84301af46
   permission_handler_apple: 9878588469a2b0d0fc1e048d9f43605f92e6cec2
   SDWebImage: 066c47b573f408f18caa467d71deace7c0f8280d
