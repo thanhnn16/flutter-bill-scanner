@@ -1,11 +1,17 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:isolate';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:long_shot_app/widgets/frame/frame_overlay.dart';
 import 'package:long_shot_app/widgets/overlay.dart';
+import 'package:path_provider/path_provider.dart';
 
+import '../display_image.dart';
+import 'native_main.dart';
+import 'native_opencv.dart';
 
 class ScanBillScreen extends StatefulWidget {
   const ScanBillScreen({super.key});
@@ -25,6 +31,8 @@ class ScanBillScreenState extends State<ScanBillScreen> {
   double _currentZoomLevel = 1.0;
   double _baseZoomLevel = 1.0;
   late double maxAllowedZoomLevel;
+  int _imageCounter = 1; // Start with 1 for the first image filename
+  bool _isLoading = false;
 
   @override
   void initState() {
@@ -59,10 +67,10 @@ class ScanBillScreenState extends State<ScanBillScreen> {
     super.dispose();
   }
 
-  // Triggers image stitching in a separate isolate
-  Future<void> _stitchImagesForPreview() async {
-
-  }
+  // // Triggers image stitching in a separate isolate
+  // Future<void> _stitchImagesForPreview() async {
+  //
+  // }
 
   Future<void> _captureImage() async {
     if (!_isCapturingPicture && _isAligned) {
@@ -73,10 +81,17 @@ class ScanBillScreenState extends State<ScanBillScreen> {
       final image = await _controller!.takePicture();
       final bytes = await image.readAsBytes();
 
-      _images.add(XFile.fromData(bytes, name: image.name));
-      if (_images.length >= 2) {
-        _stitchImagesForPreview();
-      }
+      final String fileName = '$_imageCounter.jpg';
+      final File file =
+          File('${(await getTemporaryDirectory()).path}/$fileName');
+      await file.writeAsBytes(bytes);
+
+      _images.add(XFile(file.path, name: fileName));
+      _imageCounter++;
+
+      // if (_images.length >= 2) {
+      //   _stitchImagesForPreview();
+      // }
 
       if (mounted) {
         setState(() {
@@ -93,7 +108,7 @@ class ScanBillScreenState extends State<ScanBillScreen> {
     _images = [];
     await _captureImage();
     _captureTimer =
-        Timer.periodic(const Duration(milliseconds: 350), (timer) async {
+        Timer.periodic(const Duration(milliseconds: 500), (timer) async {
       await _captureImage();
     });
   }
@@ -110,8 +125,12 @@ class ScanBillScreenState extends State<ScanBillScreen> {
       _isCapturingPicture = false;
     });
 
-    // _stitchImagesForPreview();
+    if (_images.isEmpty) return;
+
     await _controller?.pausePreview();
+
+    _processImage();
+    // _stitchImagesForPreview();
   }
 
   // Reset function
@@ -123,6 +142,77 @@ class ScanBillScreenState extends State<ScanBillScreen> {
     }
     _controller!.resumePreview();
     setState(() {});
+  }
+
+  Future<void> _processInIsolate(
+      List<String?> imagePaths, String outputPath) async {
+    final receivePort = ReceivePort();
+    await Isolate.spawn(
+      _isolateEntry,
+      [receivePort.sendPort, imagePaths, outputPath],
+    );
+
+    final result = await receivePort.first;
+    if (result is Exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${result.toString()}'),
+          ),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Stitching complete'),
+          ),
+        );
+      }
+    }
+  }
+
+  static void _isolateEntry(List<dynamic> args) {
+    final sendPort = args[0] as SendPort;
+    final imagePaths = args[1] as List<String?>;
+    final outputPath = args[2] as String;
+
+    try {
+      stitchImages(StitchImagesArguments(imagePaths, outputPath));
+      sendPort.send('Success');
+    } catch (e) {
+      sendPort.send(e);
+    }
+  }
+
+  void _processImage() async {
+    if (_isLoading) return;
+
+    setState(() => _isLoading = true);
+
+    _images.sort((a, b) => a.name.compareTo(b.name));
+
+    final imagePaths = _images.map((e) => e.path).toList();
+
+    if (imagePaths.isEmpty) {
+      setState(() => _isLoading = false);
+      return;
+    }
+
+    final outputPath = '${tempDir.path}/stitched_image.jpg';
+
+    await _processInIsolate(imagePaths, outputPath);
+
+    if (mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => DisplayImage(imagePath: outputPath),
+        ),
+      );
+    }
+
+    setState(() => _isLoading = false);
   }
 
   @override
@@ -171,7 +261,7 @@ class ScanBillScreenState extends State<ScanBillScreen> {
                                 });
                               },
                             ),
-                            CameraPreview(_controller!),
+                            // CameraPreview(_controller!),
                           ],
                         ),
                       ),

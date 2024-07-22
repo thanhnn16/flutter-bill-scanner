@@ -9,6 +9,7 @@
     <uses-feature android:name="android.hardware.camera.flash" android:required="false"/>
 
     <application
+        android:largeHeap="true"
         android:label="long_shot_app"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">

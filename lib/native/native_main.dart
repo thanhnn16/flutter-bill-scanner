@@ -6,10 +6,10 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:long_shot_app/native/scan_bill.dart';
-import 'package:long_shot_app/permission.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../display_image.dart';
+import '../permission.dart';
 import 'native_opencv.dart';
 
 const title = 'Native OpenCV Example';
@@ -28,8 +28,23 @@ class NativeMain extends StatefulWidget {
 class NativeMainState extends State<NativeMain> {
   final _picker = ImagePicker();
   bool _isLoading = false;
-  final bool _isProcessed = false;
-  final bool _isWorking = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeTempDir();
+    _initializePerm();
+  }
+
+  Future<void> _initializeTempDir() async {
+    tempDir = await getTemporaryDirectory();
+  }
+
+  Future<void> _initializePerm() async {
+    await requestCameraPermission();
+    await requestGalleryPermission();
+    await requestStoragePermission();
+  }
 
   void showVersion() {
     final scaffoldMessenger = ScaffoldMessenger.of(context);
@@ -61,152 +76,130 @@ class NativeMainState extends State<NativeMain> {
     }
   }
 
-  Future<List<String?>?> pickImages() async {
+  Future<List<String?>> pickImages() async {
     if (Platform.isIOS || Platform.isAndroid) {
-      final List<XFile> images =
-          await _picker.pickMultiImage(imageQuality: 100);
-      return images.map((image) => image.path).toList();
+      return _picker
+          .pickMultiImage(
+            imageQuality: 100,
+          )
+          .then((value) => value.map((e) => e.path).toList());
     } else {
-      final result = await FilePicker.platform.pickFiles(
-        dialogTitle: 'Pick images',
-        type: FileType.image,
-        allowMultiple: true,
-      );
-      return result?.files.map((file) => file.path).toList();
+      return FilePicker.platform
+          .pickFiles(
+            dialogTitle: 'Pick images',
+            type: FileType.image,
+            allowMultiple: true,
+          )
+          .then((value) => value?.files.map((e) => e.path).toList() ?? []);
     }
   }
 
-  Future<void> stitchImagesAndShow(List<String?> imagePaths) async {
-    setState(() {
-      _isLoading = true;
-    });
-    final outputPath = '${tempDir.path}/stitched_image.jpg';
-
-    // Creating a port for communication with isolate and arguments for entry point
-    final port = ReceivePort();
-    final args = StitchImagesArguments(imagePaths, outputPath);
-
-    // Spawning an isolate
-    Isolate.spawn<StitchImagesArguments>(
-      stitchImagesInBackground,
-      args,
-      onError: port.sendPort,
-      onExit: port.sendPort,
+  Future<void> _processInIsolate(
+      List<String?> imagePaths, String outputPath) async {
+    final receivePort = ReceivePort();
+    await Isolate.spawn(
+      _isolateEntry,
+      [receivePort.sendPort, imagePaths, outputPath],
     );
 
-    // Making a variable to store a subscription in
-    late StreamSubscription sub;
-
-    // Listening for messages on port
-    sub = port.listen((_) async {
-      // Cancel a subscription after message received called
-      await sub.cancel();
-
+    final result = await receivePort.first;
+    if (result is Exception) {
       if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => DisplayImage(imagePath: outputPath),
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${result.toString()}'),
           ),
         );
       }
-    });
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Stitching complete'),
+          ),
+        );
+      }
+    }
   }
 
-  @override
-  void initState() {
-    super.initState();
-    _initializeTempDir();
-    _initializePerm();
+  static void _isolateEntry(List<dynamic> args) {
+    final sendPort = args[0] as SendPort;
+    final imagePaths = args[1] as List<String?>;
+    final outputPath = args[2] as String;
+
+    try {
+      stitchImages(StitchImagesArguments(imagePaths, outputPath));
+      sendPort.send('Success');
+    } catch (e) {
+      sendPort.send(e);
+    }
   }
 
-  Future<void> _initializeTempDir() async {
-    tempDir = await getTemporaryDirectory();
-  }
+  void _processImage() async {
+    if (_isLoading) return;
 
-  Future<void> _initializePerm() async {
-    await requestCameraPermission();
-    await requestGalleryPermission();
-    await requestStoragePermission();
-  }
+    setState(() => _isLoading = true);
 
-  // Static function for the isolate
-  static void stitchImagesInBackground(StitchImagesArguments args) {
-    // Call the native stitching function
-    stitchImages(StitchImagesArguments(args.imagePaths, args.outputPath));
-    // Normally, you would use platform channels to communicate back to Flutter UI
+    final imagePaths = await pickImages();
+
+    if (imagePaths.isEmpty) {
+      setState(() => _isLoading = false);
+      return;
+    }
+
+    final directory = await getDownloadsDirectory();
+    final outputPath = '${directory!.path}/20.4.jpg';
+
+    await _processInIsolate(imagePaths, outputPath);
+
+    if (mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => DisplayImage(imagePath: outputPath),
+        ),
+      );
+    }
+
+    setState(() => _isLoading = false);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text(title)),
-      body: Stack(
-        children: <Widget>[
-          Center(
-            child: ListView(
-              shrinkWrap: true,
-              children: <Widget>[
-                if (_isProcessed && !_isWorking)
-                  ConstrainedBox(
-                    constraints:
-                        const BoxConstraints(maxWidth: 3000, maxHeight: 300),
-                    child: Image.file(
-                      File(tempPath),
-                      alignment: Alignment.center,
-                    ),
+      appBar: AppBar(
+        title: const Text(title),
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            if (_isLoading)
+              const CircularProgressIndicator()
+            else
+              ElevatedButton(
+                onPressed: _processImage,
+                child: const Text('Pick Images and Stitch'),
+              ),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: showVersion,
+              child: const Text('Show OpenCV Version'),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const ScanBillScreen(),
                   ),
-                Column(
-                  children: [
-                    ElevatedButton(
-                      onPressed: showVersion,
-                      child: const Text('Show version'),
-                    ),
-                    ElevatedButton(
-                      child: const Text('Stitch images'),
-                      onPressed: () async {
-                        final imagePaths = await pickImages();
-                        if (imagePaths!.isNotEmpty) {
-                          stitchImagesAndShow(imagePaths);
-                        }
-                      },
-                    ),
-                    ElevatedButton(
-                        onPressed: () {
-                          Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (context) =>
-                                      const ScanBillScreen()));
-                        },
-                        child: const Text('Scan bill')),
-                  ],
-                )
-              ],
+                );
+              },
+              child: const Text('Scan Bill'),
             ),
-          ),
-          if (_isWorking)
-            Positioned.fill(
-              child: Container(
-                color: Colors.black.withOpacity(.7),
-                child: const Center(
-                  child: CircularProgressIndicator(),
-                ),
-              ),
-            ),
-          if (_isLoading)
-            Positioned.fill(
-              child: Container(
-                color: Colors.black.withOpacity(.7),
-                child: const Center(
-                  child: CircularProgressIndicator(),
-                ),
-              ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
