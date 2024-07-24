@@ -120,12 +120,12 @@ void stitch_images(const char **imagePaths, int numImages, char *outputImagePath
         Ptr<Stitcher> stitcher = Stitcher::create(Stitcher::SCANS);
 
         // 2. Tùy chỉnh các tham số
-        stitcher->setRegistrationResol(0.8);    // Giảm nhẹ để tăng tốc độ, có thể thử nghiệm từ 0.6 - 0.8
-        stitcher->setSeamEstimationResol(0.8); // Giống RegistrationResol
+        stitcher->setRegistrationResol(0.65);    // Giảm nhẹ để tăng tốc độ, có thể thử nghiệm từ 0.6 - 0.8
+        stitcher->setSeamEstimationResol(0.65); // Giống RegistrationResol
         stitcher->setCompositingResol(1);      // Giữ nguyên để đảm bảo độ phân giải ảnh kết quả
         stitcher->setPanoConfidenceThresh(0.95);  // Tăng lên để loại bỏ ghép nối sai, giá trị thử nghiệm từ 0.7 - 0.9
-        stitcher->setFeaturesFinder(SIFT::create());
-//        stitcher->setFeaturesFinder(ORB::create(9000)); // Giảm số lượng features để tăng tốc độ, thử nghiệm từ 3000 - 8000
+//        stitcher->setFeaturesFinder(SIFT::create());
+        stitcher->setFeaturesFinder(ORB::create(8000)); // Giảm số lượng features để tăng tốc độ, thử nghiệm từ 3000 - 8000
         // Ngoài ra, có thể thử nghiệm với các features khác như SIFT, BRISK, AKAZE
         stitcher->setWaveCorrection(false);     // Tắt, không cần thiết cho scan bill
 
