@@ -4,6 +4,7 @@
 #include "bill_stitching.hpp"
 #include <algorithm>
 #include <ctime>
+#include <string>
 
 #ifdef __ANDROID__
 #include <android/log.h>
@@ -80,6 +81,30 @@ bool compareNatural(const std::string &a, const std::string &b) {
     return aFileName.size() < bFileName.size();
 }
 
+Mat preprocess(Mat img) {
+    platform_log("Bắt đầu tiền xử lý ảnh...\n");
+    // 1. Cân bằng sáng (CLAHE)
+    cvtColor(img, img, COLOR_BGR2Lab);
+    vector<Mat> channels;
+
+    platform_log("Cân bằng sáng ảnh...\n");
+    split(img, channels);
+    Ptr<CLAHE> clahe = createCLAHE(2.0, Size(8, 8));
+    clahe->apply(channels[0], channels[0]);
+
+    platform_log("Merge ảnh...\n");
+    merge(channels, img);
+    cvtColor(img, img, COLOR_Lab2BGR);
+
+    platform_log("Kết thúc tiền xử lý ảnh.\n");
+
+    platform_log("Loại bỏ nhiễu ảnh...\n");
+    // 2. Loại bỏ nhiễu (Gaussian Blur)
+    GaussianBlur(img, img, Size(3, 3), 0);
+    platform_log("Kết thúc loại bỏ nhiễu ảnh.\n");
+
+    return img;
+}
 
 extern "C" {
 const char *version() {
@@ -91,14 +116,9 @@ void stitch_images(const char **imagePaths, int numImages, char *outputImagePath
     std::vector<std::string> imagePathsVector(imagePaths, imagePaths + numImages);
 
     // Sắp xếp tên ảnh theo thứ tự tăng dần
-    platform_log("Sắp xếp tên ảnh theo thứ tự tăng dần...\n");
+    platform_log("Đang sắp xếp tên ảnh theo thứ tự tăng dần...\n");
     std::sort(imagePathsVector.begin(), imagePathsVector.end(), compareNatural);
     platform_log("Sắp xếp tên ảnh xong.\n");
-    platform_log("Danh sách ảnh:\n");
-    for (const auto &imagePath: imagePathsVector) {
-        platform_log("%s\n", imagePath.c_str());
-    }
-
     std::vector<cv::Mat> images;
     images.reserve(numImages); // Giữ chỗ trước cho images để tối ưu hiệu suất
 
@@ -110,7 +130,14 @@ void stitch_images(const char **imagePaths, int numImages, char *outputImagePath
             // Xử lý lỗi khi không load được ảnh, ví dụ: bỏ qua ảnh lỗi và tiếp tục
             continue;
         }
-        images.push_back(img);
+        Mat resized;
+        platform_log("Kích thước ảnh gốc: %dx%d\n", img.cols, img.rows);
+        resize(img, resized, Size(), 0.65, 0.65); // Giảm kích thước xuống 50%
+        platform_log("Kích thước ảnh sau khi giảm: %dx%d\n", resized.cols, resized.rows);
+        // Tiền xử lý ảnh
+        resized = preprocess(resized);
+//        img = preprocess(img);
+        images.push_back(resized);
     }
 
     try {
@@ -118,22 +145,19 @@ void stitch_images(const char **imagePaths, int numImages, char *outputImagePath
 
         // 1. Khởi tạo Stitcher
         Ptr<Stitcher> stitcher = Stitcher::create(Stitcher::SCANS);
-
         // 2. Tùy chỉnh các tham số
-        stitcher->setRegistrationResol(0.65);    // Giảm nhẹ để tăng tốc độ, có thể thử nghiệm từ 0.6 - 0.8
-        stitcher->setSeamEstimationResol(0.65); // Giống RegistrationResol
+//        stitcher->setRegistrationResol(0.75);    // Giảm nhẹ để tăng tốc độ, có thể thử nghiệm từ 0.6 - 0.8
+//        stitcher->setSeamEstimationResol(0.75); // Giống RegistrationResol
         stitcher->setCompositingResol(1);      // Giữ nguyên để đảm bảo độ phân giải ảnh kết quả
-        stitcher->setPanoConfidenceThresh(0.95);  // Tăng lên để loại bỏ ghép nối sai, giá trị thử nghiệm từ 0.7 - 0.9
+        stitcher->setPanoConfidenceThresh(0.92);  // Tăng lên để loại bỏ ghép nối sai, giá trị thử nghiệm từ 0.7 - 0.9
 //        stitcher->setFeaturesFinder(SIFT::create());
-        stitcher->setFeaturesFinder(ORB::create(8000)); // Giảm số lượng features để tăng tốc độ, thử nghiệm từ 3000 - 8000
+        stitcher->setFeaturesFinder(ORB::create(7200)); // Giảm số lượng features để tăng tốc độ, thử nghiệm từ 3000 - 8000
         // Ngoài ra, có thể thử nghiệm với các features khác như SIFT, BRISK, AKAZE
-        stitcher->setWaveCorrection(false);     // Tắt, không cần thiết cho scan bill
-
+//        stitcher->setWaveCorrection(false);     // Tắt, không cần thiết cho scan bill
         // Bỏ qua ExposureCompensator vì ánh sáng khi scan thường đồng đều
         // stitcher->setExposureCompensator(ExposureCompensator::createDefault(ExposureCompensator::GAIN_BLOCKS));
-        stitcher->setBlender(Blender::createDefault(Blender::MULTI_BAND, true)); // Giữ nguyên, vẫn cần blender cho kết quả tốt nhất
-        // Không cần setWarper vì không ghép panorama
-        // stitcher->setWarper(Ptr<WarperCreator>(new cv::CylindricalWarper()));
+        stitcher->setBlender(Blender::createDefault(Blender::MULTI_BAND,
+                                                    false)); // Giữ nguyên, vẫn cần blender cho kết quả tốt nhất
 
         // 3. Thực hiện ghép nối tất cả ảnh cùng lúc
         cv::Mat result;
@@ -146,97 +170,22 @@ void stitch_images(const char **imagePaths, int numImages, char *outputImagePath
             std::string errorMessage;
             switch (status) {
                 case Stitcher::ERR_NEED_MORE_IMGS:
-                    errorMessage = "Not enough images to stitch.";
+                    errorMessage = "Không đủ ảnh để ghép.";
                     break;
                 case Stitcher::ERR_HOMOGRAPHY_EST_FAIL:
-                    errorMessage = "Homography estimation failed.";
+                    errorMessage = "Ước lượng đồng nhất không thành công.";
                     break;
                 case Stitcher::ERR_CAMERA_PARAMS_ADJUST_FAIL:
-                    errorMessage = "Camera parameters adjustment failed.";
+                    errorMessage = "Điều chỉnh tham số camera không thành công.";
                     break;
                 default:
-                    errorMessage = "Unknown stitching error.";
+                    errorMessage = "Lỗi không xác định.";
                     break;
             }
-            platform_log("Can't stitch images, error: %s\n", errorMessage.c_str());
+            platform_log("Không thể ghép ảnh: %s\n", errorMessage.c_str());
             return;
         }
 
-//
-//// === 5. Cắt ảnh theo bill (sử dụng Canny edge detection) ===
-//        platform_log("Cropping bill using Canny edge detection...\n");
-//
-//        Mat grayResult, edges;
-//        cvtColor(result, grayResult, COLOR_BGR2GRAY);
-//        GaussianBlur(grayResult, grayResult, Size(5, 5), 0); // Giảm nhiễu
-//        Canny(grayResult, edges, 50, 150); // Áp dụng Canny edge detection
-//
-//        // Tìm contours từ edges
-//        vector <vector<Point>> contours;
-//        findContours(edges, contours, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
-//
-//        if (contours.empty()) {
-//            platform_log("No contours found. Skipping bill cropping.\n");
-//        } else {
-//            // Chọn contour lớn nhất
-//            int largestContourIndex = 0;
-//            double largestContourArea = 0;
-//            for (int i = 0; i < contours.size(); i++) {
-//                double area = contourArea(contours[i]);
-//                if (area > largestContourArea) {
-//                    largestContourArea = area;
-//                    largestContourIndex = i;
-//                }
-//            }
-//
-//            // Tìm bounding rect của contour lớn nhất
-//            Rect billRect = boundingRect(contours[largestContourIndex]);
-//
-//            // Cắt ảnh theo bounding rect
-//            result = result(billRect);
-//        }
-//
-//        // === 6. Làm phẳng bill (sử dụng perspective transform) ===
-//        platform_log("Flattening bill...\n");
-//        // Tìm 4 góc của bill
-//        platform_log("Bill rect: x=%d, y=%d, width=%d, height=%d\n", billRect.x, billRect.y,
-//                     billRect.width, billRect.height);
-//        vector <Point2f> billCorners(4);
-//        billCorners[0] = Point2f(billRect.x, billRect.y);                   // Góc trên bên trái
-//        billCorners[1] = Point2f(billRect.x + billRect.width,
-//                                 billRect.y);          // Góc trên bên phải
-//        billCorners[2] = Point2f(billRect.x + billRect.width,
-//                                 billRect.y + billRect.height); // Góc dưới bên phải
-//        billCorners[3] = Point2f(billRect.x,
-//                                 billRect.y + billRect.height);         // Góc dưới bên trái
-//
-//        // Xác định kích thước ảnh đầu ra sau khi làm phẳng
-//        float maxWidth = max(norm(billCorners[0] - billCorners[1]),
-//                             norm(billCorners[2] - billCorners[3]));
-//        float maxHeight = max(norm(billCorners[1] - billCorners[2]),
-//                              norm(billCorners[3] - billCorners[0]));
-//        Size outputSize1(maxWidth, maxHeight);
-//
-//        platform_log("Output size: width=%d, height=%d\n", outputSize1.width, outputSize1.height);
-//
-//        // Tạo ma trận đích cho perspective transform
-//        vector <Point2f> outputCorners(4);
-//        outputCorners[0] = Point2f(0, 0);
-//        outputCorners[1] = Point2f(outputSize1.width - 1, 0);
-//        outputCorners[2] = Point2f(outputSize1.width - 1, outputSize1.height - 1);
-//        outputCorners[3] = Point2f(0, outputSize1.height - 1);
-//
-//        // Tính toán ma trận perspective transform
-//        Mat perspectiveTransform1 = getPerspectiveTransform(billCorners, outputCorners);
-//
-//        platform_log("Perspective transform computed\n");
-//
-//        // Áp dụng perspective transform để làm phẳng bill
-//        warpPerspective(result, result, perspectiveTransform1, outputSize1);
-//
-//        platform_log("Bill flattened\n");
-//
-//        platform_log("Stitching completed\n");
 
         imwrite(outputImagePath, result);
 
