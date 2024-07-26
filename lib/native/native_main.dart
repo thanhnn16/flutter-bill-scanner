@@ -148,7 +148,7 @@ class NativeMainState extends State<NativeMain> {
     }
 
     final directory = await getDownloadsDirectory();
-    final outputPath = '${directory!.path}/20.4.jpg';
+    final outputPath = '${directory!.path}/stitched_bill.jpg';
 
     await _processInIsolate(imagePaths, outputPath);
 

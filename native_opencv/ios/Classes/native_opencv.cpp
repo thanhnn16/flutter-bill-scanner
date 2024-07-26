@@ -132,7 +132,7 @@ void stitch_images(const char **imagePaths, int numImages, char *outputImagePath
         }
         Mat resized;
         platform_log("Kích thước ảnh gốc: %dx%d\n", img.cols, img.rows);
-        resize(img, resized, Size(), 0.65, 0.65); // Giảm kích thước xuống 50%
+        resize(img, resized, Size(), 0.7, 0.7); // Giảm kích thước xuống 50%
         platform_log("Kích thước ảnh sau khi giảm: %dx%d\n", resized.cols, resized.rows);
         // Tiền xử lý ảnh
         resized = preprocess(resized);
@@ -149,9 +149,9 @@ void stitch_images(const char **imagePaths, int numImages, char *outputImagePath
 //        stitcher->setRegistrationResol(0.75);    // Giảm nhẹ để tăng tốc độ, có thể thử nghiệm từ 0.6 - 0.8
 //        stitcher->setSeamEstimationResol(0.75); // Giống RegistrationResol
         stitcher->setCompositingResol(1);      // Giữ nguyên để đảm bảo độ phân giải ảnh kết quả
-        stitcher->setPanoConfidenceThresh(0.92);  // Tăng lên để loại bỏ ghép nối sai, giá trị thử nghiệm từ 0.7 - 0.9
+        stitcher->setPanoConfidenceThresh(0.935);  // Tăng lên để loại bỏ ghép nối sai, giá trị thử nghiệm từ 0.7 - 0.9
 //        stitcher->setFeaturesFinder(SIFT::create());
-        stitcher->setFeaturesFinder(ORB::create(7200)); // Giảm số lượng features để tăng tốc độ, thử nghiệm từ 3000 - 8000
+        stitcher->setFeaturesFinder(ORB::create(7550)); // Giảm số lượng features để tăng tốc độ, thử nghiệm từ 3000 - 8000
         // Ngoài ra, có thể thử nghiệm với các features khác như SIFT, BRISK, AKAZE
 //        stitcher->setWaveCorrection(false);     // Tắt, không cần thiết cho scan bill
         // Bỏ qua ExposureCompensator vì ánh sáng khi scan thường đồng đều
