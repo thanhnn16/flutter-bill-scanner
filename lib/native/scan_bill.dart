@@ -33,6 +33,7 @@ class ScanBillScreenState extends State<ScanBillScreen> {
   late double maxAllowedZoomLevel;
   int _imageCounter = 1; // Start with 1 for the first image filename
   bool _isLoading = false;
+  bool _isProcessing = false;
 
   @override
   void initState() {
@@ -108,7 +109,7 @@ class ScanBillScreenState extends State<ScanBillScreen> {
     _images = [];
     await _captureImage();
     _captureTimer =
-        Timer.periodic(const Duration(milliseconds: 500), (timer) async {
+        Timer.periodic(const Duration(milliseconds: 750), (timer) async {
       await _captureImage();
     });
   }
@@ -188,14 +189,20 @@ class ScanBillScreenState extends State<ScanBillScreen> {
   void _processImage() async {
     if (_isLoading) return;
 
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _isProcessing = true;
+    });
 
     _images.sort((a, b) => a.name.compareTo(b.name));
 
     final imagePaths = _images.map((e) => e.path).toList();
 
     if (imagePaths.isEmpty) {
-      setState(() => _isLoading = false);
+      setState(() {
+        _isLoading = true;
+        _isProcessing = true;
+      });
       return;
     }
 
@@ -212,7 +219,10 @@ class ScanBillScreenState extends State<ScanBillScreen> {
       );
     }
 
-    setState(() => _isLoading = false);
+    setState(() {
+      _isLoading = true;
+      _isProcessing = true;
+    });
   }
 
   @override
@@ -269,20 +279,20 @@ class ScanBillScreenState extends State<ScanBillScreen> {
                   : const Center(child: CircularProgressIndicator()),
             ),
           ),
-          OverlayPreview(
-            child: _stitchedImage.isNotEmpty
-                ? Image.memory(_stitchedImage,
-                    fit: BoxFit.contain,
-                    width: MediaQuery.of(context).size.width / 4,
-                    height: MediaQuery.of(context).size.height / 4)
-                : Container(
-                    color: Colors.white,
-                    width: MediaQuery.of(context).size.width /
-                        4, // Adjust the size of the preview
-                    height: MediaQuery.of(context).size.height /
-                        4, // Adjust the size of the preview
-                  ),
-          ),
+          // OverlayPreview(
+          //   child: _stitchedImage.isNotEmpty
+          //       ? Image.memory(_stitchedImage,
+          //           fit: BoxFit.contain,
+          //           width: MediaQuery.of(context).size.width / 4,
+          //           height: MediaQuery.of(context).size.height / 4)
+          //       : Container(
+          //           color: Colors.white,
+          //           width: MediaQuery.of(context).size.width /
+          //               4, // Adjust the size of the preview
+          //           height: MediaQuery.of(context).size.height /
+          //               4, // Adjust the size of the preview
+          //         ),
+          // ),
           Positioned(
             bottom: 32,
             right: 32,
@@ -291,7 +301,16 @@ class ScanBillScreenState extends State<ScanBillScreen> {
               onPressed: _reset,
               color: Colors.white,
             ),
-          )
+          ),
+          if (_isProcessing)
+            Container(
+              width: double.infinity,
+              height: double.infinity,
+              color: Colors.black54,
+              child: const Center(
+                child: CircularProgressIndicator(),
+              ),
+            ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
