@@ -3,7 +3,6 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:camera/camera.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:long_shot_app/widgets/frame/frame_overlay.dart';
 import 'package:long_shot_app/widgets/overlay.dart';
@@ -27,7 +26,7 @@ class ScanBillScreenState extends State<ScanBillScreen> {
   bool _isCapturingPicture = false;
   Timer? _captureTimer;
   bool _isAligned = false;
-  var _stitchedImage = Uint8List(0);
+  // var _stitchedImage = Uint8List(0);
   double _currentZoomLevel = 1.0;
   double _baseZoomLevel = 1.0;
   late double maxAllowedZoomLevel;
@@ -109,7 +108,7 @@ class ScanBillScreenState extends State<ScanBillScreen> {
     _images = [];
     await _captureImage();
     _captureTimer =
-        Timer.periodic(const Duration(milliseconds: 750), (timer) async {
+        Timer.periodic(const Duration(milliseconds: 1000), (timer) async {
       await _captureImage();
     });
   }
@@ -137,7 +136,7 @@ class ScanBillScreenState extends State<ScanBillScreen> {
   // Reset function
   void _reset() {
     _images = [];
-    _stitchedImage = Uint8List(0);
+    // _stitchedImage = Uint8List(0);
     if (_controller!.value.isStreamingImages) {
       _controller!.stopImageStream();
     }
